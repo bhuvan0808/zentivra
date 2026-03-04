@@ -2,7 +2,7 @@
 
 <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Smilies/Alien%20Monster.png" alt="Alien Monster" width="60" height="60" />
 <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Satellite%20Antenna.png" alt="Satellite Antenna" width="60" height="60" />
-<img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Rocket.png" alt="Rocket" width="60" height="60" />
+<img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Rocket.png" alt="Rocket" width="60" height="60" />
 
 # 🌊 ZENTIVRA : Frontier AI Radar
 
@@ -24,7 +24,7 @@
 
 </div>
 
-<img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Magic%20Wand.png" alt="Magic Wand" width="25" height="25" /> **Constantly Evolving. Always Learning.**
+<img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Activities/Magic%20Wand.png" alt="Magic Wand" width="25" height="25" /> **Constantly Evolving. Always Learning.**
 
 ---
 
@@ -42,8 +42,8 @@ In the AI sector, a week is a year. New foundation models drop daily, pricing up
 
 *   <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Smilies/Robot.png" width="20" height="20" /> **Multi-Agent Architecture**: Four specialized intelligent agents (*Competitor Watcher, Model Provider, Research Scout, HF Benchmark Tracker*) constantly monitor over 19+ diverse sources.
 *   <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/High%20Voltage.png" width="20" height="20" /> **Intelligent Extraction**: Bypasses cookie banners and grabs pure, semantic content from unstructured HTML and XML feeds.
-*   <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Smilies/Brain.png" width="20" height="20" /> **LLM-Powered Summarization & Ranking**: Summarizes complex articles using **Groq (Llama-3.3-70B)** and ranks them using a weighted algorithm.
-*   <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Symbols/Stop%20Sign.png" width="20" height="20" /> **Advanced Deduplication Engine**: Uses local semantic hashing and similarity clustering so you only read a story once.
+*   <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Light%20Bulb.png" width="20" height="20" /> **LLM-Powered Summarization & Ranking**: Summarizes complex articles using **Groq (Llama-3.3-70B)** and ranks them using a weighted algorithm.
+*   <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Stop%20Sign.png" width="20" height="20" /> **Advanced Deduplication Engine**: Uses local semantic hashing and similarity clustering so you only read a story once.
 *   <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/E-Mail.png" width="20" height="20" /> **Automated Delivery**: Compiles daily findings into a stunning narrative-driven HTML/PDF digest, sent to your inbox.
 *   <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Desktop%20Computer.png" width="20" height="20" /> **Premium Glassmorphic Dashboard**: A gorgeous, dark-mode Next.js UI containing dynamic metric charts.
 
@@ -256,7 +256,7 @@ zentivra/
   <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Hand%20gestures/Handshake.png" alt="Handshake" width="50" height="50" />
   <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Locked.png" alt="Locked" width="50" height="50" />
   <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Shield.png" alt="Shield" width="50" height="50" />
-  <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Rocket.png" alt="Rocket" width="50" height="50" />
+  <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Rocket.png" alt="Rocket" width="50" height="50" />
   
   ### Built for speed. Designed for intelligence. Stay ahead of the Frontier.
   
