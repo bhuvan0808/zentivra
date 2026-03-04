@@ -254,9 +254,13 @@ zentivra/
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Hand%20gestures/Handshake.png" alt="Handshake" width="50" height="50" />
+  <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Locked.png" alt="Locked" width="50" height="50" />
+  <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Shield.png" alt="Shield" width="50" height="50" />
+  <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Rocket.png" alt="Rocket" width="50" height="50" />
   
   ### Built for speed. Designed for intelligence. Stay ahead of the Frontier.
-  Contributions to improve the extraction efficiency, add LLM providers, or enhance the dashboard are welcome!  
   
-  **License**: MIT 
+  **Zentivra** is a proprietary, closed-source intelligence platform built for internal enterprise use. All data extraction, deduplication, and LLM methodologies within this repository are strictly confidential.
+  
+  *© 2026 Zentivra Intelligence Systems. All Rights Reserved.*
 </div>
