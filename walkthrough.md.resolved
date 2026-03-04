@@ -1,0 +1,53 @@
+# Zentivra – Phase 1 Walkthrough
+
+## What Was Built
+
+**Complete FastAPI backend foundation** — the server starts, creates the SQLite database, auto-seeds 20 sources from YAML config, and serves all REST API endpoints.
+
+### Files Created (30 files)
+
+| Category | Files |
+|---|---|
+| **Config** | [.env.example](file:///c:/Bhuvan/zentivra/backend/.env.example), `.env`, [config/global.yaml](file:///c:/Bhuvan/zentivra/backend/config/global.yaml), [config/agents.yaml](file:///c:/Bhuvan/zentivra/backend/config/agents.yaml) |
+| **App Core** | [app/config.py](file:///c:/Bhuvan/zentivra/backend/app/config.py), [app/database.py](file:///c:/Bhuvan/zentivra/backend/app/database.py), [app/main.py](file:///c:/Bhuvan/zentivra/backend/app/main.py) |
+| **Models (6)** | [source.py](file:///c:/Bhuvan/zentivra/backend/app/models/source.py), [snapshot.py](file:///c:/Bhuvan/zentivra/backend/app/models/snapshot.py), [extraction.py](file:///c:/Bhuvan/zentivra/backend/app/models/extraction.py), [finding.py](file:///c:/Bhuvan/zentivra/backend/app/models/finding.py), [run.py](file:///c:/Bhuvan/zentivra/backend/app/models/run.py), [digest.py](file:///c:/Bhuvan/zentivra/backend/app/models/digest.py) |
+| **Schemas (4)** | [source.py](file:///c:/Bhuvan/zentivra/backend/app/models/source.py), [finding.py](file:///c:/Bhuvan/zentivra/backend/app/models/finding.py), [run.py](file:///c:/Bhuvan/zentivra/backend/app/models/run.py), [digest.py](file:///c:/Bhuvan/zentivra/backend/app/models/digest.py) |
+| **API Routes (5)** | [router.py](file:///c:/Bhuvan/zentivra/backend/app/api/router.py), [sources.py](file:///c:/Bhuvan/zentivra/backend/app/api/sources.py), [runs.py](file:///c:/Bhuvan/zentivra/backend/app/api/runs.py), [findings.py](file:///c:/Bhuvan/zentivra/backend/app/api/findings.py), [digests.py](file:///c:/Bhuvan/zentivra/backend/app/api/digests.py) |
+| **Project** | [.gitignore](file:///c:/Bhuvan/zentivra/.gitignore), [requirements.txt](file:///c:/Bhuvan/zentivra/backend/requirements.txt), package [__init__.py](file:///c:/Bhuvan/zentivra/backend/app/__init__.py) files |
+
+### API Endpoints Available
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/` | Health check |
+| `GET` | `/health` | Detailed health status |
+| `GET` | `/api/sources/` | List all sources (filterable) |
+| `POST` | `/api/sources/` | Add a new source |
+| `PUT` | `/api/sources/{id}` | Update a source |
+| `DELETE` | `/api/sources/{id}` | Delete a source |
+| `GET` | `/api/runs/` | List run history |
+| `POST` | `/api/runs/trigger` | Manually trigger a pipeline run |
+| `GET` | `/api/findings/` | Browse findings (search, filter, paginate) |
+| `GET` | `/api/findings/stats` | Finding statistics for dashboard |
+| `GET` | `/api/digests/` | List digests |
+| `GET` | `/api/digests/{id}/pdf` | Download digest PDF |
+
+### Pre-Configured Sources (20 total)
+- **6 Competitors**: OpenAI, Anthropic, Google DeepMind, Meta AI, Mistral, Cohere
+- **4 Model Providers**: OpenAI Platform, Google AI Studio, Anthropic API, AWS Bedrock
+- **5 Research**: arXiv CS.CL/CS.LG/CS.AI, Semantic Scholar, Papers With Code
+- **5 Benchmarks**: Open LLM Leaderboard, HF Trending Models/Datasets, Chatbot Arena
+
+## Verification Results
+
+- ✅ Server starts on `http://127.0.0.1:8000`
+- ✅ `GET /health` → `200 OK`
+- ✅ `GET /api/sources/` → `200 OK` (20 pre-seeded sources)
+- ✅ `POST /api/runs/trigger` → `202 Accepted`
+- ✅ `GET /api/findings/stats` → `200 OK`
+- ✅ Swagger docs available at `http://127.0.0.1:8000/docs`
+- ✅ SQLite database created and populated automatically
+
+## Next Steps
+
+**Phase 2**: Core Pipeline Infrastructure — Fetcher, Extractor, Change Detector, Summarizer

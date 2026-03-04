@@ -1,0 +1,116 @@
+# =============================================================================
+# Zentivra Agent Source Configurations
+# =============================================================================
+# Each section defines the sources for a specific agent.
+# Add/remove URLs as needed. The web UI can also manage these.
+# =============================================================================
+
+# ─── Agent #1: Competitor Release Watcher ─────────────────────────────────────
+competitors:
+  - name: "OpenAI"
+    url: "https://openai.com/blog"
+    feed_url: "https://openai.com/blog/rss.xml"
+    keywords: ["release", "launch", "update", "API", "model", "GPT", "pricing"]
+    rate_limit_rpm: 5
+
+  - name: "Anthropic"
+    url: "https://www.anthropic.com/news"
+    keywords: ["Claude", "release", "update", "API", "safety", "model"]
+    rate_limit_rpm: 5
+
+  - name: "Google DeepMind"
+    url: "https://deepmind.google/discover/blog/"
+    keywords: ["Gemini", "release", "model", "update", "research"]
+    rate_limit_rpm: 5
+
+  - name: "Meta AI"
+    url: "https://ai.meta.com/blog/"
+    keywords: ["Llama", "release", "open source", "model", "update"]
+    rate_limit_rpm: 5
+
+  - name: "Mistral AI"
+    url: "https://mistral.ai/news/"
+    keywords: ["Mistral", "Mixtral", "release", "model", "update"]
+    rate_limit_rpm: 5
+
+  - name: "Cohere"
+    url: "https://cohere.com/blog"
+    keywords: ["Command", "Embed", "release", "enterprise", "RAG"]
+    rate_limit_rpm: 5
+
+# ─── Agent #2: Foundation Model Provider Watcher ──────────────────────────────
+model_providers:
+  - name: "OpenAI Platform"
+    url: "https://platform.openai.com/docs/changelog"
+    keywords: ["model", "API", "pricing", "deprecation", "context", "function calling"]
+    rate_limit_rpm: 5
+
+  - name: "Google AI Studio"
+    url: "https://ai.google.dev/gemini-api/docs/changelog"
+    keywords: ["Gemini", "API", "pricing", "model", "context window"]
+    rate_limit_rpm: 5
+
+  - name: "Anthropic API"
+    url: "https://docs.anthropic.com/en/docs/about-claude/models"
+    keywords: ["Claude", "API", "pricing", "context", "tool use"]
+    rate_limit_rpm: 5
+
+  - name: "AWS Bedrock"
+    url: "https://aws.amazon.com/about-aws/whats-new/"
+    keywords: ["Bedrock", "foundation model", "Claude", "Titan", "Mistral"]
+    css_selectors:
+      title: ".lb-title"
+      content: ".lb-txt"
+    rate_limit_rpm: 3
+
+# ─── Agent #3: Research Publication Scout ─────────────────────────────────────
+research:
+  - name: "arXiv CS.CL"
+    url: "https://arxiv.org/list/cs.CL/recent"
+    feed_url: "https://rss.arxiv.org/rss/cs.CL"
+    keywords: ["LLM", "language model", "transformer", "attention", "benchmark"]
+    rate_limit_rpm: 5
+
+  - name: "arXiv CS.LG"
+    url: "https://arxiv.org/list/cs.LG/recent"
+    feed_url: "https://rss.arxiv.org/rss/cs.LG"
+    keywords: ["deep learning", "neural", "training", "optimization", "reinforcement"]
+    rate_limit_rpm: 5
+
+  - name: "arXiv CS.AI"
+    url: "https://arxiv.org/list/cs.AI/recent"
+    feed_url: "https://rss.arxiv.org/rss/cs.AI"
+    keywords: ["agent", "reasoning", "planning", "multimodal", "alignment"]
+    rate_limit_rpm: 5
+
+  - name: "Semantic Scholar AI"
+    url: "https://api.semanticscholar.org/graph/v1/paper/search"
+    keywords: ["large language model", "foundation model", "AI agent", "evaluation"]
+    rate_limit_rpm: 10
+
+  - name: "Papers With Code"
+    url: "https://paperswithcode.com/latest"
+    keywords: ["SOTA", "benchmark", "dataset", "new method"]
+    rate_limit_rpm: 5
+
+# ─── Agent #4: HuggingFace Benchmark Tracker ─────────────────────────────────
+hf_benchmarks:
+  - name: "Open LLM Leaderboard"
+    url: "https://huggingface.co/spaces/open-llm-leaderboard/open_llm_leaderboard"
+    keywords: ["leaderboard", "MMLU", "ARC", "HellaSwag", "TruthfulQA", "GSM8K"]
+    rate_limit_rpm: 3
+
+  - name: "HF Trending Models"
+    url: "https://huggingface.co/models?sort=trending"
+    keywords: ["trending", "model", "downloads", "likes"]
+    rate_limit_rpm: 3
+
+  - name: "HF Datasets"
+    url: "https://huggingface.co/datasets?sort=trending"
+    keywords: ["dataset", "benchmark", "evaluation", "training data"]
+    rate_limit_rpm: 3
+
+  - name: "Chatbot Arena"
+    url: "https://lmarena.ai/?leaderboard"
+    keywords: ["ELO", "rating", "arena", "chatbot", "comparison"]
+    rate_limit_rpm: 3

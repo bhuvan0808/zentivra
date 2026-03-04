@@ -1,0 +1,54 @@
+# Zentivra – Frontier AI Radar Implementation
+
+## Phase 0: Planning
+- [x] Read and understand the full spec
+- [x] Create detailed implementation plan
+- [x] Get user approval on plan, tech stack, and required API keys/installations
+
+## Phase 1: Project Foundation
+- [x] Initialize project structure (monorepo with backend + frontend)
+- [x] Set up Python backend with FastAPI
+- [x] Set up database schema (SQLite temp → PostgreSQL later)
+- [x] Set up configuration system (YAML-based)
+- [x] Implement secrets management (.env)
+
+## Phase 2: Core Pipeline Infrastructure
+- [x] Implement Fetcher Layer (httpx + Playwright fallback)
+- [x] Implement Extractor Layer (HTML/RSS/PDF to text)
+- [x] Implement Change Detector (diff, hashing)
+- [x] Implement Summarizer (LLM integration)
+- [x] Implement Knowledge Store (DB models + raw storage)
+
+## Phase 3: Agent Workers
+- [x] Implement Shared Agent Interface
+- [x] Agent #1 – Competitor Release Watcher
+- [x] Agent #2 – Foundation Model Provider Watcher
+- [x] Agent #3 – Research Publication Scout
+- [x] Agent #4 – HuggingFace Benchmark Tracker
+
+## Phase 4: Digest Compiler & Delivery
+- [x] Deduplication + Clustering engine
+- [x] Ranking + Impact scoring
+- [x] Digest Compiler (narrative generation)
+- [x] PDF Renderer (WeasyPrint)
+- [x] Email Notification Service (SMTP/SendGrid)
+
+## Phase 5: Orchestration
+- [x] Scheduler integration (APScheduler / Prefect)
+- [x] Run Manager (parallel agent execution)
+- [x] Retry strategy + circuit breaker
+- [x] Observability (logging, metrics, tracing)
+
+## Phase 6: Web UI
+- [x] Next.js frontend setup
+- [x] Dashboard page
+- [x] Sources manager page
+- [x] Runs history page
+- [x] Findings explorer page
+- [x] Digest archive page
+
+## Phase 7: Testing & Polish
+- [/] Unit tests (extraction, parsing, dedup, PDF)
+- [/] Integration tests (full pipeline)
+- [/] Quality tests (hallucination checks)
+- [/] End-to-end validation

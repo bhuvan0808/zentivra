@@ -1,0 +1,543 @@
+# Zentivra – Frontier AI Radar: Implementation Plan
+
+A daily multi-agent intelligence system that tracks competitor releases, foundation model updates, AI research publications, and HuggingFace benchmarks — then produces an executive + technical PDF digest delivered by email.
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **API Keys Needed** (you can provide these when we reach each phase):
+> 1. **LLM API Key** — Pick ONE (recommend **Google Gemini** for cost-efficiency):
+>    - Google Gemini API key, **OR**
+>    - OpenAI API key, **OR**
+>    - Anthropic Claude API key
+> 2. **Email Delivery** — Pick ONE:
+>    - **SendGrid API key** (recommended, free tier = 100 emails/day), **OR**
+>    - SMTP credentials (Gmail app password, or any SMTP server)
+> 3. **Optional but recommended:**
+>    - Semantic Scholar API key (free, speeds up research queries)
+>    - HuggingFace API token (free, avoids rate limits on HF API)
+
+> [!WARNING]
+> **Software to Install on Your Laptop** (before we start coding):
+> 1. **PostgreSQL 16+** — [Download here](https://www.postgresql.org/downloads/) — our primary database
+> 2. **Node.js 20+ LTS** — [Download here](https://nodejs.org/) — for the Next.js frontend
+> 3. **Python 3.11+** — likely already installed (we'll verify)
+> 4. **Optional:** Docker Desktop — if you prefer running PostgreSQL as a container instead of installing natively
+
+> [!CAUTION]
+> **Key Design Decisions for Your Approval:**
+> 1. **LLM Provider**: Recommend **Google Gemini 2.0 Flash** (cheapest, fast, good quality). Alternative: OpenAI GPT-4o-mini. Which do you prefer?
+> 2. **Orchestration**: Using **APScheduler** (lightweight, no external infra) instead of Prefect/Dagster/Temporal (which need separate servers). Good for our scale.
+> 3. **Frontend**: **Next.js 14 + Tailwind CSS** for the web UI (spec suggests this). OK?
+> 4. **PDF Engine**: **WeasyPrint** (renders HTML/CSS to PDF, beautiful output). Requires installing `GTK` runtime on Windows — I'll guide you through it.
+
+---
+
+## Tech Stack (Final)
+
+| Layer | Technology | Why |
+|---|---|---|
+| **Backend API** | Python 3.11+ / FastAPI | Async, fast, great for agents |
+| **Database** | PostgreSQL 16 | Relational, JSONB for flexible findings |
+| **ORM** | SQLAlchemy 2.0 + Alembic | Migrations, async support |
+| **Task Queue** | APScheduler | Lightweight scheduler, no infra needed |
+| **Crawler** | httpx (async) + Playwright (JS fallback) | Handles static + dynamic pages |
+| **Extraction** | BeautifulSoup4, trafilatura, feedparser | HTML/RSS/Atom parsing |
+| **LLM** | Google Gemini API (via `google-genai`) | Summarization, ranking, narrative |
+| **Embeddings** | sentence-transformers (local) | Dedup similarity, clustering |
+| **PDF** | WeasyPrint | HTML→PDF with CSS styling |
+| **Email** | SendGrid SDK or smtplib | Delivery |
+| **Frontend** | Next.js 14 + Tailwind CSS | Modern, fast UI |
+| **Observability** | Python `logging` + structlog | Structured JSON logs |
+
+---
+
+## Project Directory Structure
+
+```
+c:\Bhuvan\zentivra\
+├── backend/                        # Python FastAPI backend
+│   ├── alembic/                    # Database migrations
+│   │   ├── versions/
+│   │   └── env.py
+│   ├── alembic.ini
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── main.py                 # FastAPI app entry point
+│   │   ├── config.py               # Settings (pydantic-settings)
+│   │   ├── database.py             # DB engine, session
+│   │   ├── models/                 # SQLAlchemy models
+│   │   │   ├── __init__.py
+│   │   │   ├── source.py           # sources table
+│   │   │   ├── snapshot.py         # snapshots table
+│   │   │   ├── extraction.py       # extractions table
+│   │   │   ├── finding.py          # findings table
+│   │   │   ├── run.py              # runs table
+│   │   │   └── digest.py           # digests table
+│   │   ├── schemas/                # Pydantic request/response models
+│   │   │   ├── __init__.py
+│   │   │   ├── source.py
+│   │   │   ├── finding.py
+│   │   │   ├── run.py
+│   │   │   └── digest.py
+│   │   ├── api/                    # REST API routes
+│   │   │   ├── __init__.py
+│   │   │   ├── router.py           # Main router
+│   │   │   ├── sources.py          # CRUD sources
+│   │   │   ├── runs.py             # Trigger/view runs
+│   │   │   ├── findings.py         # Browse findings
+│   │   │   └── digests.py          # View/download digests
+│   │   ├── core/                   # Core pipeline components
+│   │   │   ├── __init__.py
+│   │   │   ├── fetcher.py          # httpx + Playwright fetcher
+│   │   │   ├── extractor.py        # HTML/RSS/PDF extraction
+│   │   │   ├── change_detector.py  # Diff + fingerprinting
+│   │   │   ├── summarizer.py       # LLM summarization
+│   │   │   ├── dedup.py            # Deduplication + clustering
+│   │   │   ├── ranker.py           # Impact scoring
+│   │   │   └── rate_limiter.py     # Per-domain rate limiting
+│   │   ├── agents/                 # Agent workers
+│   │   │   ├── __init__.py
+│   │   │   ├── base_agent.py       # Shared agent interface
+│   │   │   ├── competitor_watcher.py       # Agent #1
+│   │   │   ├── model_provider_watcher.py   # Agent #2
+│   │   │   ├── research_scout.py           # Agent #3
+│   │   │   └── hf_benchmark_tracker.py     # Agent #4
+│   │   ├── digest/                 # Digest compilation
+│   │   │   ├── __init__.py
+│   │   │   ├── compiler.py         # Narrative generation
+│   │   │   ├── pdf_renderer.py     # WeasyPrint PDF
+│   │   │   └── templates/          # HTML templates for PDF
+│   │   │       ├── digest.html
+│   │   │       └── styles.css
+│   │   ├── notifications/          # Email service
+│   │   │   ├── __init__.py
+│   │   │   └── email_service.py
+│   │   └── scheduler/             # Orchestration
+│   │       ├── __init__.py
+│   │       ├── orchestrator.py     # Run manager
+│   │       └── scheduler.py        # APScheduler setup
+│   ├── config/                     # YAML agent configurations
+│   │   ├── agents.yaml             # All agent source configs
+│   │   └── global.yaml             # Global settings
+│   ├── data/                       # Local storage for snapshots/PDFs
+│   │   ├── snapshots/
+│   │   └── digests/
+│   ├── tests/                      # Test suite
+│   │   ├── __init__.py
+│   │   ├── test_extractor.py
+│   │   ├── test_change_detector.py
+│   │   ├── test_dedup.py
+│   │   ├── test_pdf_renderer.py
+│   │   └── test_pipeline.py
+│   ├── requirements.txt
+│   ├── .env.example                # Template for secrets
+│   └── .env                        # Actual secrets (gitignored)
+├── frontend/                       # Next.js web UI
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── layout.tsx
+│   │   │   ├── page.tsx            # Dashboard
+│   │   │   ├── sources/
+│   │   │   │   └── page.tsx        # Sources manager
+│   │   │   ├── runs/
+│   │   │   │   └── page.tsx        # Runs history
+│   │   │   ├── findings/
+│   │   │   │   └── page.tsx        # Findings explorer
+│   │   │   └── digests/
+│   │   │       └── page.tsx        # Digest archive
+│   │   ├── components/             # Reusable UI components
+│   │   └── lib/
+│   │       └── api.ts              # API client
+│   ├── package.json
+│   ├── tailwind.config.ts
+│   └── tsconfig.json
+├── .gitignore
+└── README.md
+```
+
+---
+
+## Proposed Changes
+
+### Phase 1: Project Foundation
+
+#### [NEW] [requirements.txt](file:///c:/Bhuvan/zentivra/backend/requirements.txt)
+All Python dependencies:
+```
+fastapi[standard]==0.115.*
+uvicorn[standard]==0.34.*
+sqlalchemy[asyncio]==2.0.*
+alembic==1.14.*
+asyncpg==0.30.*
+pydantic-settings==2.7.*
+httpx==0.28.*
+playwright==1.49.*
+beautifulsoup4==4.12.*
+trafilatura==2.0.*
+feedparser==6.0.*
+google-genai==1.5.*
+sentence-transformers==3.4.*
+scikit-learn==1.6.*
+weasyprint==63.*
+apscheduler==3.10.*
+python-dotenv==1.0.*
+structlog==24.4.*
+pyyaml==6.0.*
+jinja2==3.1.*
+sendgrid==6.11.*
+robotexclusionrulesparser==1.7.*
+pytest==8.3.*
+pytest-asyncio==0.25.*
+```
+
+#### [NEW] [.env.example](file:///c:/Bhuvan/zentivra/backend/.env.example)
+Template for all secrets:
+```env
+# Database
+DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/zentivra
+
+# LLM Provider (pick one)
+GEMINI_API_KEY=your-gemini-key
+# OPENAI_API_KEY=your-openai-key
+
+# Email (pick one)
+SENDGRID_API_KEY=your-sendgrid-key
+# SMTP_HOST=smtp.gmail.com
+# SMTP_PORT=587
+# SMTP_USER=you@gmail.com
+# SMTP_PASSWORD=app-password
+
+# Optional
+SEMANTIC_SCHOLAR_API_KEY=
+HUGGINGFACE_TOKEN=
+
+# App
+EMAIL_RECIPIENTS=user@example.com
+DIGEST_TIME=06:00
+TIMEZONE=Asia/Kolkata
+```
+
+#### [NEW] [config.py](file:///c:/Bhuvan/zentivra/backend/app/config.py)
+Pydantic settings class that loads from `.env` and validates all config.
+
+#### [NEW] [database.py](file:///c:/Bhuvan/zentivra/backend/app/database.py)
+Async SQLAlchemy engine + session factory for PostgreSQL.
+
+---
+
+### Phase 2: Database Schema (6 Tables)
+
+#### [NEW] [source.py](file:///c:/Bhuvan/zentivra/backend/app/models/source.py)
+```
+sources table:
+  id (UUID PK)
+  agent_type (enum: competitor|model_provider|research|hf_benchmark)
+  name (str)
+  url (str)
+  feed_url (str, nullable)
+  css_selectors (JSONB, nullable)
+  keywords (JSONB, nullable)
+  rate_limit_rpm (int, default 10)
+  enabled (bool, default true)
+  created_at, updated_at (timestamps)
+```
+
+#### [NEW] [snapshot.py](file:///c:/Bhuvan/zentivra/backend/app/models/snapshot.py)
+```
+snapshots table:
+  id (UUID PK)
+  source_id (FK → sources)
+  run_id (FK → runs)
+  url (str)
+  content_hash (str) — SHA256 of raw content
+  raw_content (text)
+  fetched_at (timestamp)
+  http_status (int)
+```
+
+#### [NEW] [extraction.py](file:///c:/Bhuvan/zentivra/backend/app/models/extraction.py)
+```
+extractions table:
+  id (UUID PK)
+  snapshot_id (FK → snapshots)
+  extracted_text (text)
+  metadata (JSONB) — title, date, author, etc.
+  extraction_method (str)
+```
+
+#### [NEW] [finding.py](file:///c:/Bhuvan/zentivra/backend/app/models/finding.py)
+```
+findings table:
+  id (UUID PK)
+  run_id (FK → runs)
+  source_id (FK → sources)
+  title (str)
+  date_detected (timestamp)
+  source_url (str)
+  publisher (str)
+  category (enum: models|apis|pricing|benchmarks|safety|tooling)
+  summary_short (text)
+  summary_long (text)
+  why_it_matters (text)
+  evidence (JSONB)
+  confidence (float, 0-1)
+  tags (JSONB array)
+  entities (JSONB) — company, model, dataset
+  diff_hash (str)
+  impact_score (float)
+  is_duplicate (bool, default false)
+  cluster_id (str, nullable)
+  embedding (vector, nullable) — for similarity search
+```
+
+#### [NEW] [run.py](file:///c:/Bhuvan/zentivra/backend/app/models/run.py)
+```
+runs table:
+  id (UUID PK)
+  started_at, completed_at (timestamps)
+  status (enum: pending|running|completed|failed)
+  agent_statuses (JSONB) — per-agent status
+  total_findings (int)
+  error_log (text, nullable)
+```
+
+#### [NEW] [digest.py](file:///c:/Bhuvan/zentivra/backend/app/models/digest.py)
+```
+digests table:
+  id (UUID PK)
+  run_id (FK → runs)
+  date (date)
+  executive_summary (text)
+  pdf_path (str) — path to generated PDF
+  email_sent (bool, default false)
+  sent_at (timestamp, nullable)
+  recipients (JSONB array)
+```
+
+---
+
+### Phase 3: Core Pipeline Components
+
+#### [NEW] [fetcher.py](file:///c:/Bhuvan/zentivra/backend/app/core/fetcher.py)
+- Async HTTP fetcher using `httpx` with retry + backoff
+- Playwright fallback for JavaScript-rendered pages
+- `robots.txt` checking via `robotexclusionrulesparser`
+- Per-domain rate limiting (token bucket)
+- Returns raw HTML/content + HTTP status
+
+#### [NEW] [extractor.py](file:///c:/Bhuvan/zentivra/backend/app/core/extractor.py)
+- HTML to clean text via `trafilatura` (best-in-class article extraction)
+- BeautifulSoup for CSS-selector-based targeted extraction
+- RSS/Atom via `feedparser`
+- Metadata extraction (title, date, author)
+
+#### [NEW] [change_detector.py](file:///c:/Bhuvan/zentivra/backend/app/core/change_detector.py)
+- SHA256 content hashing for fast identical-page detection
+- Text canonicalization (strip whitespace/boilerplate) before hashing
+- Diff generation between previous and current snapshot
+- Skip summarization if hash unchanged
+
+#### [NEW] [summarizer.py](file:///c:/Bhuvan/zentivra/backend/app/core/summarizer.py)
+- LLM integration (Gemini primary, OpenAI fallback)
+- Structured output extraction using JSON mode:
+  - What changed, why it matters, who it affects, numbers/claims, citations
+- Confidence scoring
+- Guardrails: always include citations, never invent scores
+
+#### [NEW] [dedup.py](file:///c:/Bhuvan/zentivra/backend/app/core/dedup.py)
+- Sentence-transformer embeddings for semantic similarity
+- Cosine similarity threshold (>0.85 = likely duplicate)
+- Cluster findings by topic using agglomerative clustering
+- Categories: Models, APIs, Pricing, Benchmarks, Safety, Tooling
+
+#### [NEW] [ranker.py](file:///c:/Bhuvan/zentivra/backend/app/core/ranker.py)
+Impact score formula from spec:
+```
+Impact = 0.35 * Relevance + 0.25 * Novelty + 0.20 * Credibility + 0.20 * Actionability
+```
+LLM-assisted scoring for each dimension (1-10 scale).
+
+#### [NEW] [rate_limiter.py](file:///c:/Bhuvan/zentivra/backend/app/core/rate_limiter.py)
+- Token bucket per domain
+- Configurable RPM per source
+- Async-safe with `asyncio.Lock`
+
+---
+
+### Phase 4: Agent Workers
+
+#### [NEW] [base_agent.py](file:///c:/Bhuvan/zentivra/backend/app/agents/base_agent.py)
+Shared interface all agents implement:
+```python
+class BaseAgent:
+    async def run(run_id, agent_config, since_timestamp) -> list[Finding]
+    # Uses: fetcher → extractor → change_detector → summarizer
+```
+
+#### [NEW] [competitor_watcher.py](file:///c:/Bhuvan/zentivra/backend/app/agents/competitor_watcher.py)
+Agent #1: Discovers pages (RSS → sitemap → crawl), fetches, extracts, diffs, summarizes, ranks impact.
+
+#### [NEW] [model_provider_watcher.py](file:///c:/Bhuvan/zentivra/backend/app/agents/model_provider_watcher.py)
+Agent #2: Tracks model releases, API updates, pricing changes. Extracts structured model metadata.
+
+#### [NEW] [research_scout.py](file:///c:/Bhuvan/zentivra/backend/app/agents/research_scout.py)
+Agent #3: Queries arXiv, Semantic Scholar, OpenReview. Extracts core contribution, novelty, implications.
+
+#### [NEW] [hf_benchmark_tracker.py](file:///c:/Bhuvan/zentivra/backend/app/agents/hf_benchmark_tracker.py)
+Agent #4: Scrapes HF leaderboards, trending models, SOTA claims. Tracks movements over time.
+
+---
+
+### Phase 5: Digest Compiler & Delivery
+
+#### [NEW] [compiler.py](file:///c:/Bhuvan/zentivra/backend/app/digest/compiler.py)
+- Aggregates all findings from a run
+- Calls dedup → cluster → rank
+- Uses LLM to generate narrative sections per topic
+- Produces executive summary (1-page constraint)
+
+#### [NEW] [pdf_renderer.py](file:///c:/Bhuvan/zentivra/backend/app/digest/pdf_renderer.py)
+- Jinja2 HTML template → WeasyPrint → PDF
+- Cover page with date + audience
+- Executive summary section
+- Deep-dive sections (Competitors, Model Providers, Research, HF Benchmarks)
+- Appendix with source links
+
+#### [NEW] [digest.html](file:///c:/Bhuvan/zentivra/backend/app/digest/templates/digest.html)
+Professional HTML template for PDF rendering with CSS print styles.
+
+#### [NEW] [email_service.py](file:///c:/Bhuvan/zentivra/backend/app/notifications/email_service.py)
+- SendGrid SDK or SMTP fallback
+- Sends: executive summary snippet, PDF attachment, dashboard link
+- Configurable recipient list
+
+---
+
+### Phase 6: Orchestration & API
+
+#### [NEW] [orchestrator.py](file:///c:/Bhuvan/zentivra/backend/app/scheduler/orchestrator.py)
+- Run Manager: creates run record, launches all 4 agents in parallel (`asyncio.gather`)
+- Partial failure tolerant (one agent can fail, others continue)
+- After agents complete: triggers digest compiler → PDF → email
+- Per-URL retries with exponential backoff
+- Domain-level circuit breaker
+
+#### [NEW] [scheduler.py](file:///c:/Bhuvan/zentivra/backend/app/scheduler/scheduler.py)
+- APScheduler CronTrigger for daily runs
+- Configurable run time and timezone
+- Also exposes manual trigger via API
+
+#### [NEW] [main.py](file:///c:/Bhuvan/zentivra/backend/app/main.py)
+FastAPI app with:
+- CORS middleware
+- Startup: init DB, start scheduler
+- Shutdown: cleanup
+
+#### [NEW] REST API routes
+- `POST /api/sources` — Add source
+- `GET/PUT/DELETE /api/sources/{id}` — Manage sources
+- `POST /api/runs/trigger` — Manual run trigger
+- `GET /api/runs` — List runs history
+- `GET /api/runs/{id}` — Run detail with agent statuses
+- `GET /api/findings` — Browse findings (paginated, filterable)
+- `GET /api/digests` — List digests
+- `GET /api/digests/{id}/pdf` — Download PDF
+
+---
+
+### Phase 7: Web UI (Next.js)
+
+#### [NEW] Next.js 14 App Router frontend
+
+**Dashboard** (`/`):
+- Today's digest summary card
+- Latest run status
+- Finding count by category (bar chart)
+- Quick actions: trigger run, view latest PDF
+
+**Sources Manager** (`/sources`):
+- Table of all configured sources
+- Add/edit/delete sources with form
+- Toggle source enabled/disabled
+- Filter by agent type
+
+**Runs History** (`/runs`):
+- Table of all runs with timestamps + status
+- Click to view run detail with per-agent logs
+- Visual badges for success/failure per agent
+
+**Findings Explorer** (`/findings`):
+- Searchable, filterable list of findings
+- Filter by category, date range, agent, confidence
+- Click to expand full finding detail
+- Impact score visual indicator
+
+**Digest Archive** (`/digests`):
+- List of all generated digests by date
+- Download PDF button
+- Preview executive summary inline
+
+---
+
+## Verification Plan
+
+### Automated Tests
+
+Run all tests with:
+```bash
+cd c:\Bhuvan\zentivra\backend
+python -m pytest tests/ -v
+```
+
+| Test File | What It Verifies |
+|---|---|
+| `test_extractor.py` | HTML/RSS extraction produces clean text + metadata |
+| `test_change_detector.py` | Same content → same hash; different content → different hash; diff generation |
+| `test_dedup.py` | Near-duplicate findings are detected; distinct findings are kept |
+| `test_pdf_renderer.py` | PDF is generated with correct sections and is a valid PDF file |
+| `test_pipeline.py` | Full integration: mock sources → agents → findings → digest → PDF |
+
+### Manual Verification
+
+1. **Database**: After Phase 1, connect to PostgreSQL and verify all 6 tables exist:
+   ```bash
+   psql -U postgres -d zentivra -c "\dt"
+   ```
+
+2. **API**: After Phase 6, run the server and test endpoints:
+   ```bash
+   cd c:\Bhuvan\zentivra\backend
+   uvicorn app.main:app --reload
+   ```
+   Then open `http://localhost:8000/docs` — FastAPI auto-generates Swagger UI.
+
+3. **Manual Run**: Trigger a run via the API and verify:
+   - Findings are created in DB
+   - PDF is generated in `data/digests/`
+   - Email is received (if configured)
+
+4. **Web UI**: Start the frontend and verify all 5 pages render and connect to the API:
+   ```bash
+   cd c:\Bhuvan\zentivra\frontend
+   npm run dev
+   ```
+   Then open `http://localhost:3000`.
+
+---
+
+## Implementation Order
+
+| Phase | Description | Estimated Files |
+|---|---|---|
+| **1** | Project setup, DB schema, config, migrations | ~15 files |
+| **2** | Core pipeline (fetcher, extractor, change detector, summarizer) | ~7 files |
+| **3** | Agent workers (4 agents + base class) | ~5 files |
+| **4** | Dedup, ranking, digest compiler, PDF, email | ~8 files |
+| **5** | Orchestrator, scheduler, REST API routes | ~8 files |
+| **6** | Next.js frontend (5 pages + components) | ~15 files |
+| **7** | Tests + polish | ~6 files |
+
+**Total: ~64 files across backend + frontend**

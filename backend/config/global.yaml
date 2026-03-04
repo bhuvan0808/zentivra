@@ -1,0 +1,53 @@
+# =============================================================================
+# Zentivra Global Configuration
+# =============================================================================
+
+scheduling:
+  # Daily digest time (24hr format)
+  run_time: "06:00"
+  timezone: "Asia/Kolkata"
+
+crawling:
+  # Maximum pages to crawl per domain in a single run
+  max_pages_per_domain: 50
+  # Default rate limit (requests per minute) per domain
+  default_rate_limit_rpm: 10
+  # Request timeout in seconds
+  request_timeout: 30
+  # User agent string
+  user_agent: "Zentivra/1.0 (AI Research Intelligence Bot; +https://zentivra.dev)"
+
+summarization:
+  # LLM provider: gemini, openai, or anthropic
+  provider: "gemini"
+  # Model to use
+  model: "gemini-2.0-flash"
+  # Max tokens for summaries
+  max_summary_tokens: 1024
+  # Temperature for generation
+  temperature: 0.3
+
+email:
+  # Send digest emails
+  enabled: false
+  # Subject line template
+  subject_template: "Zentivra AI Radar — {date}"
+
+pdf:
+  # Include appendix with raw snippets
+  include_appendix: true
+  # Maximum findings per section in the digest
+  max_findings_per_section: 15
+
+deduplication:
+  # Cosine similarity threshold for duplicate detection
+  similarity_threshold: 0.85
+  # Minimum confidence to include a finding
+  min_confidence: 0.3
+
+ranking:
+  # Impact score weights (must sum to 1.0)
+  relevance_weight: 0.35
+  novelty_weight: 0.25
+  credibility_weight: 0.20
+  actionability_weight: 0.20

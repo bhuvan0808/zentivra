@@ -1,0 +1,30 @@
+# Global ignores
+.DS_Store
+.idea/
+.vscode/
+
+# Backend ignores
+backend/__pycache__/
+backend/*.py[cod]
+backend/*$py.class
+backend/data/
+backend/digests/
+backend/snapshots/
+backend/logs/
+backend/*.pdf
+backend/*.html
+backend/.env
+backend/.venv
+backend/env/
+backend/venv/
+
+# Frontend ignores
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/.env
+frontend/.env*.local
+
+# Miscellaneous
+*.zip
