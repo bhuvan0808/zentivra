@@ -9,10 +9,7 @@ import hashlib
 from dataclasses import dataclass, field
 from typing import Optional
 
-import structlog
-
-logger = structlog.get_logger(__name__)
-
+from app.utils.logger import logger
 
 @dataclass
 class DedupResult:
@@ -48,7 +45,7 @@ class DedupEngine:
             try:
                 from sentence_transformers import SentenceTransformer
                 self._model = SentenceTransformer("all-MiniLM-L6-v2")
-                logger.info("embedding_model_loaded", model="all-MiniLM-L6-v2")
+                logger.info("embedding_model_loaded model=all-MiniLM-L6-v2")
             except ImportError:
                 logger.warning("sentence_transformers_not_installed")
                 return None
@@ -73,7 +70,7 @@ class DedupEngine:
             return DedupResult()
 
         total = len(findings)
-        logger.info("dedup_start", total_findings=total)
+        logger.info("dedup_start total_findings=%d", total)
 
         # Phase 1: Exact hash dedup
         seen_hashes = {}
@@ -85,7 +82,7 @@ class DedupEngine:
 
             if text_hash in seen_hashes:
                 duplicate_ids.add(f["id"])
-                logger.debug("exact_duplicate", finding_id=f["id"])
+                logger.debug("exact_duplicate finding_id=%s", f["id"])
             else:
                 seen_hashes[text_hash] = f["id"]
 
@@ -121,11 +118,11 @@ class DedupEngine:
         )
 
         logger.info(
-            "dedup_complete",
-            total=total,
-            unique=result.total_unique,
-            duplicates=result.total_duplicates,
-            clusters=len(clusters),
+            "dedup_complete total=%d unique=%d duplicates=%d clusters=%d",
+            total,
+            result.total_unique,
+            result.total_duplicates,
+            len(clusters),
         )
 
         return result
@@ -167,15 +164,15 @@ class DedupEngine:
                             duplicate_ids.add(findings[i]["id"])
 
                         logger.debug(
-                            "semantic_duplicate",
-                            similarity=round(float(sim_matrix[i][j]), 3),
-                            kept=findings[i]["id"] if conf_i >= conf_j else findings[j]["id"],
+                            "semantic_duplicate similarity=%.3f kept=%s",
+                            float(sim_matrix[i][j]),
+                            findings[i]["id"] if conf_i >= conf_j else findings[j]["id"],
                         )
 
             return duplicate_ids
 
         except Exception as e:
-            logger.error("semantic_dedup_error", error=str(e))
+            logger.error("semantic_dedup_error error=%s", str(e))
             return set()
 
     def _cluster_findings(self, findings: list[dict]) -> dict[str, list[str]]:

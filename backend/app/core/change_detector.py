@@ -11,10 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-import structlog
-
-logger = structlog.get_logger(__name__)
-
+from app.utils.logger import logger
 
 @dataclass
 class ChangeResult:
@@ -37,7 +34,7 @@ class ChangeDetector:
         detector = ChangeDetector()
         result = detector.compare("old content", "new content")
         if result.has_changed:
-            print(result.diff_text)
+            logger.info("diff_text diff=%s", result.diff_text)
     """
 
     def canonicalize(self, text: str) -> str:
@@ -141,10 +138,10 @@ class ChangeDetector:
         diff_summary = f"{added} lines added, {removed} lines removed ({change_ratio:.1%} changed)"
 
         logger.info(
-            "change_detected",
-            added=added,
-            removed=removed,
-            ratio=round(change_ratio, 3),
+            "change_detected added=%d removed=%d ratio=%.3f",
+            added,
+            removed,
+            change_ratio,
         )
 
         return ChangeResult(

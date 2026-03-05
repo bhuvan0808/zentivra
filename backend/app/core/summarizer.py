@@ -9,11 +9,9 @@ import json
 from dataclasses import dataclass, field
 from typing import Optional
 
-import structlog
+from app.utils.logger import logger
 
 from app.config import settings
-
-logger = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -111,7 +109,7 @@ class Summarizer:
 
     def __init__(self):
         self._provider = settings.active_llm_provider
-        logger.info("summarizer_init", provider=self._provider)
+        logger.info("summarizer_init provider=%s", self._provider)
 
     async def summarize(
         self,
@@ -159,7 +157,7 @@ class Summarizer:
             return result
 
         except Exception as e:
-            logger.error("summarize_error", error=str(e), source=source_name)
+            logger.error("summarize_error error=%s source=%s", str(e), source_name)
             return SummaryResult(
                 success=False,
                 error=str(e),
@@ -201,7 +199,7 @@ class Summarizer:
             return scores
 
         except Exception as e:
-            logger.error("rank_error", error=str(e), title=title)
+            logger.error("rank_error error=%s title=%s", str(e), title)
             return {
                 "relevance": 5,
                 "novelty": 5,
@@ -250,7 +248,7 @@ Write the narrative directly (no preamble, no markdown headers). Keep it concise
                 narrative = await self._call_llm(prompt)
                 narratives[section] = narrative.strip()
             except Exception as e:
-                logger.error("narrative_error", section=section, error=str(e))
+                logger.error("narrative_error section=%s error=%s", section, str(e))
                 narratives[section] = f"Error generating narrative: {e}"
 
         return narratives
@@ -279,7 +277,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
         try:
             return (await self._call_llm(prompt)).strip()
         except Exception as e:
-            logger.error("executive_summary_error", error=str(e))
+            logger.error("executive_summary_error error=%s", str(e))
             return f"Executive summary generation failed: {e}"
 
     # ── LLM Provider Implementations ──────────────────────────────────────
@@ -325,14 +323,14 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
                 if delay_match and attempt < max_retries - 1:
                     delay = int(delay_match.group(1))
                     logger.warning(
-                        "gemini_rate_limit",
-                        retry_delay=delay,
-                        attempt=attempt + 1,
+                        "gemini_rate_limit retry_delay=%d attempt=%d",
+                        delay,
+                        attempt + 1,
                     )
                     await asyncio.sleep(delay + 2)  # Wait the suggested delay + buffer
                 elif attempt < max_retries - 1:
                     wait = 2 ** (attempt + 1)
-                    logger.warning("gemini_error_retry", error=error_str[:100], wait=wait)
+                    logger.warning("gemini_error_retry error=%s wait=%d", error_str[:100], wait)
                     await asyncio.sleep(wait)
                 else:
                     raise
@@ -474,5 +472,5 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
                 except json.JSONDecodeError:
                     pass
 
-            logger.error("json_parse_error", response_preview=response[:200])
+            logger.error("json_parse_error response_preview=%s", response[:200])
             return {}

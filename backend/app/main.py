@@ -7,7 +7,7 @@ Run with:
     uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 """
 
-import structlog
+from app.utils.logger import logger
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -18,51 +18,31 @@ from app.database import init_db, close_db
 from app.api.router import api_router
 
 
-# Configure structured logging
-structlog.configure(
-    processors=[
-        structlog.stdlib.filter_by_level,
-        structlog.stdlib.add_logger_name,
-        structlog.stdlib.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,
-        structlog.processors.JSONRenderer(),
-    ],
-    wrapper_class=structlog.stdlib.BoundLogger,
-    context_class=dict,
-    logger_factory=structlog.stdlib.LoggerFactory(),
-    cache_logger_on_first_use=True,
-)
-
-logger = structlog.get_logger(__name__)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup and shutdown lifecycle."""
     # ── Startup ──────────────────────────────────────────────────────────
-    logger.info("zentivra_startup", env=settings.app_env.value)
+    logger.info("zentivra_startup env=%s", settings.app_env.value)
 
     # Initialize database tables (creates them if using SQLite)
     await init_db()
-    logger.info("database_initialized", url=settings.database_url[:30] + "...")
+    logger.info("database_initialized url=%s...", settings.database_url[:30])
 
     # Seed default sources from YAML config (if DB is empty)
     await _seed_sources_from_config()
 
     # Log LLM provider status
     logger.info(
-        "llm_provider",
-        provider=settings.active_llm_provider,
-        configured=settings.active_llm_provider != "none",
+        "llm_provider provider=%s configured=%s",
+        settings.active_llm_provider,
+        settings.active_llm_provider != "none",
     )
 
     # Log email status
     logger.info(
-        "email_service",
-        configured=settings.has_email_configured,
-        recipients=len(settings.email_recipient_list),
+        "email_service configured=%s recipients=%d",
+        settings.has_email_configured,
+        len(settings.email_recipient_list),
     )
 
     # Start the daily scheduler
@@ -71,7 +51,7 @@ async def lifespan(app: FastAPI):
         start_scheduler()
         logger.info("scheduler_started")
     except Exception as e:
-        logger.warning("scheduler_start_failed", error=str(e))
+        logger.warning("scheduler_start_failed error=%s", str(e))
 
     yield
 
@@ -150,7 +130,7 @@ async def _seed_sources_from_config():
 
     config_path = Path(__file__).parent.parent / "config" / "agents.yaml"
     if not config_path.exists():
-        logger.warning("agents_config_not_found", path=str(config_path))
+        logger.warning("agents_config_not_found path=%s", str(config_path))
         return
 
     async with async_session() as session:
@@ -158,7 +138,7 @@ async def _seed_sources_from_config():
         result = await session.execute(select(func.count(Source.id)))
         count = result.scalar() or 0
         if count > 0:
-            logger.info("sources_already_seeded", count=count)
+            logger.info("sources_already_seeded count=%d", count)
             return
 
         # Load YAML config
@@ -189,4 +169,4 @@ async def _seed_sources_from_config():
                 total_seeded += 1
 
         await session.commit()
-        logger.info("sources_seeded_from_config", total=total_seeded)
+        logger.info("sources_seeded_from_config total=%d", total_seeded)
