@@ -5,12 +5,10 @@ Tracks competitor sites (blogs, changelogs, docs release notes)
 and summarizes product/platform releases.
 """
 
-import structlog
+from app.utils.logger import logger
 
 from app.agents.base_agent import BaseAgent
 from app.models.source import Source
-
-logger = structlog.get_logger(__name__)
 
 # Keywords that indicate high-impact releases
 HIGH_IMPACT_KEYWORDS = [
@@ -49,9 +47,9 @@ class CompetitorWatcher(BaseAgent):
             feed_urls = await self._discover_from_feed(source.feed_url)
             urls.extend(feed_urls)
             logger.info(
-                "competitor_feed_discovered",
-                source=source.name,
-                urls=len(feed_urls),
+                "competitor_feed_discovered source=%s urls=%d",
+                source.name,
+                len(feed_urls),
             )
 
         # Fallback to direct URL

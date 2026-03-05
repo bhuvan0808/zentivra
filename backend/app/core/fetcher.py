@@ -12,12 +12,8 @@ from typing import Optional
 from urllib.parse import urljoin, urlparse
 
 import httpx
-import structlog
-
+from app.utils.logger import logger
 from app.config import settings
-from app.core.rate_limiter import rate_limiter
-
-logger = structlog.get_logger(__name__)
 
 # User agent for requests
 USER_AGENT = "Zentivra/1.0 (AI Research Intelligence Bot)"
@@ -106,7 +102,7 @@ class Fetcher:
         fetcher = Fetcher()
         result = await fetcher.fetch("https://example.com/blog")
         if result.success:
-            print(result.content)
+            logger.info("fetched_content content=%s", result.content)
     """
 
     def __init__(
@@ -156,7 +152,7 @@ class Fetcher:
         if self.respect_robots:
             allowed = await self._robots_checker.is_allowed(url, client)
             if not allowed:
-                logger.warning("robots_disallowed", url=url)
+                logger.warning("robots_disallowed url=%s", url)
                 return FetchResult(
                     url=url,
                     status_code=403,
@@ -176,7 +172,7 @@ class Fetcher:
             and result.success
             and self._seems_js_rendered(result.content)
         ):
-            logger.info("playwright_fallback", url=url, reason="content seems JS-rendered")
+            logger.info("playwright_fallback url=%s reason=content seems JS-rendered", url)
             pw_result = await self._fetch_with_playwright(url)
             if pw_result.success and len(pw_result.content) > len(result.content):
                 return pw_result
@@ -197,10 +193,10 @@ class Fetcher:
 
                 if response.status_code >= 400:
                     logger.warning(
-                        "fetch_http_error",
-                        url=url,
-                        status=response.status_code,
-                        attempt=attempt + 1,
+                        "fetch_http_error url=%s status=%d attempt=%d",
+                        url,
+                        response.status_code,
+                        attempt + 1,
                     )
                     if response.status_code in (429, 503) and attempt < self.max_retries - 1:
                         wait = 2 ** (attempt + 1)
@@ -230,13 +226,13 @@ class Fetcher:
 
             except httpx.TimeoutException as e:
                 last_error = f"Timeout: {e}"
-                logger.warning("fetch_timeout", url=url, attempt=attempt + 1)
+                logger.warning("fetch_timeout url=%s attempt=%d", url, attempt + 1)
             except httpx.ConnectError as e:
                 last_error = f"Connection error: {e}"
-                logger.warning("fetch_connect_error", url=url, attempt=attempt + 1)
+                logger.warning("fetch_connect_error url=%s attempt=%d", url, attempt + 1)
             except Exception as e:
                 last_error = str(e)
-                logger.error("fetch_error", url=url, error=str(e), attempt=attempt + 1)
+                logger.error("fetch_error url=%s error=%s attempt=%d", url, str(e), attempt + 1)
 
             if attempt < self.max_retries - 1:
                 await asyncio.sleep(2 ** (attempt + 1))
@@ -270,12 +266,12 @@ class Fetcher:
                 )
 
         except ImportError:
-            logger.warning("playwright_not_installed", url=url)
+            logger.warning("playwright_not_installed url=%s", url)
             return FetchResult(
                 url=url, status_code=0, error="Playwright not installed", success=False
             )
         except Exception as e:
-            logger.error("playwright_error", url=url, error=str(e))
+            logger.error("playwright_error url=%s error=%s", url, str(e))
             return FetchResult(
                 url=url, status_code=0, error=f"Playwright error: {e}", success=False
             )

@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Optional
 
-import structlog
+from app.utils.logger import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,8 +22,6 @@ from app.models.extraction import Extraction
 from app.models.finding import Finding
 from app.models.snapshot import Snapshot
 from app.models.source import Source
-
-logger = structlog.get_logger(__name__)
 
 
 class BaseAgent(ABC):
@@ -89,10 +87,10 @@ class BaseAgent(ABC):
         }
 
         logger.info(
-            "agent_run_start",
-            agent=self.agent_type,
-            run_id=run_id[:8],
-            sources=len(sources),
+            "agent_run_start agent=%s run_id=%s sources=%d",
+            self.agent_type,
+            run_id[:8],
+            len(sources),
         )
 
         for source in sources:
@@ -107,14 +105,17 @@ class BaseAgent(ABC):
 
             except Exception as e:
                 error_msg = f"Error processing source '{source.name}': {e}"
-                logger.error("agent_source_error", source=source.name, error=str(e))
+                logger.error("agent_source_error source=%s error=%s", source.name, str(e))
                 agent_log["errors"].append(error_msg)
 
         logger.info(
-            "agent_run_complete",
-            agent=self.agent_type,
-            findings=len(all_findings),
-            **agent_log,
+            "agent_run_complete agent=%s findings=%d sources_processed=%d urls_fetched=%d findings_created=%d errors=%s",
+            self.agent_type,
+            len(all_findings),
+            agent_log["sources_processed"],
+            agent_log["urls_fetched"],
+            agent_log["findings_created"],
+            str(agent_log["errors"]),
         )
 
         return all_findings
@@ -132,10 +133,10 @@ class BaseAgent(ABC):
         # Step 1: Discover URLs to crawl
         urls = await self.discover_urls(source)
         logger.info(
-            "urls_discovered",
-            agent=self.agent_type,
-            source=source.name,
-            urls=len(urls),
+            "urls_discovered agent=%s source=%s urls=%d",
+            self.agent_type,
+            source.name,
+            len(urls),
         )
 
         if not urls:
@@ -149,10 +150,10 @@ class BaseAgent(ABC):
                     findings.append(finding)
             except Exception as e:
                 logger.error(
-                    "url_processing_error",
-                    url=url,
-                    source=source.name,
-                    error=str(e),
+                    "url_processing_error url=%s source=%s error=%s",
+                    url,
+                    source.name,
+                    str(e),
                 )
 
         return findings
@@ -174,7 +175,7 @@ class BaseAgent(ABC):
         )
 
         if not fetch_result.success:
-            logger.warning("fetch_failed", url=url, error=fetch_result.error)
+            logger.warning("fetch_failed url=%s error=%s", url, fetch_result.error)
             return None
 
         # Step 3: Extract text + metadata
@@ -185,7 +186,7 @@ class BaseAgent(ABC):
         )
 
         if not extraction.success or not extraction.text:
-            logger.warning("extraction_failed", url=url, error=extraction.error)
+            logger.warning("extraction_failed url=%s error=%s", url, extraction.error)
             return None
 
         # Step 4: Detect changes
@@ -197,7 +198,7 @@ class BaseAgent(ABC):
 
         # Skip if content hasn't significantly changed
         if not self.change_detector.is_significant_change(change):
-            logger.debug("no_significant_change", url=url)
+            logger.debug("no_significant_change url=%s", url)
             # Still save snapshot for tracking
             if db:
                 await self._save_snapshot(
@@ -215,7 +216,7 @@ class BaseAgent(ABC):
         )
 
         if not summary.success:
-            logger.warning("summarization_failed", url=url, error=summary.error)
+            logger.warning("summarization_failed url=%s error=%s", url, summary.error)
             return None
 
         # Step 6: Store in database
@@ -252,10 +253,10 @@ class BaseAgent(ABC):
         finding = await self.post_process_finding(finding, extraction, source)
 
         logger.info(
-            "finding_created",
-            title=finding["title"][:60],
-            confidence=finding["confidence"],
-            category=finding["category"],
+            "finding_created title=%s confidence=%.2f category=%s",
+            finding["title"][:60],
+            finding["confidence"],
+            finding["category"],
         )
 
         return finding
@@ -322,7 +323,7 @@ class BaseAgent(ABC):
             row = result.scalar_one_or_none()
             return row
         except Exception as e:
-            logger.error("previous_content_error", url=url, error=str(e))
+            logger.error("previous_content_error url=%s error=%s", url, str(e))
             return None
 
     async def _save_snapshot(
@@ -363,7 +364,7 @@ class BaseAgent(ABC):
             await db.flush()
 
         except Exception as e:
-            logger.error("save_snapshot_error", url=url, error=str(e))
+            logger.error("save_snapshot_error url=%s error=%s", url, str(e))
 
     async def close(self):
         """Cleanup resources."""

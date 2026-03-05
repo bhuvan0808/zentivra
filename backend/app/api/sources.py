@@ -2,13 +2,12 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, Query
 
-from app.database import get_db
-from app.models.source import AgentType, Source
+from app.dependencies import get_source_service
+from app.models.source import AgentType
 from app.schemas.source import SourceCreate, SourceResponse, SourceUpdate
+from app.services.source_service import SourceService
 
 router = APIRouter(prefix="/sources", tags=["Sources"])
 
@@ -17,67 +16,44 @@ router = APIRouter(prefix="/sources", tags=["Sources"])
 async def list_sources(
     agent_type: Optional[AgentType] = Query(None),
     enabled: Optional[bool] = Query(None),
-    db: AsyncSession = Depends(get_db),
+    service: SourceService = Depends(get_source_service),
 ):
     """List all sources, optionally filtered by agent type or enabled status."""
-    query = select(Source).order_by(Source.created_at.desc())
-    if agent_type:
-        query = query.where(Source.agent_type == agent_type)
-    if enabled is not None:
-        query = query.where(Source.enabled == enabled)
-    result = await db.execute(query)
-    return result.scalars().all()
+    return await service.list_sources(agent_type=agent_type, enabled=enabled)
 
 
 @router.post("/", response_model=SourceResponse, status_code=201)
 async def create_source(
     source_data: SourceCreate,
-    db: AsyncSession = Depends(get_db),
+    service: SourceService = Depends(get_source_service),
 ):
     """Create a new data source."""
-    source = Source(**source_data.model_dump())
-    db.add(source)
-    await db.flush()
-    await db.refresh(source)
-    return source
+    return await service.create(source_data)
 
 
 @router.get("/{source_id}", response_model=SourceResponse)
-async def get_source(source_id: str, db: AsyncSession = Depends(get_db)):
+async def get_source(
+    source_id: str,
+    service: SourceService = Depends(get_source_service),
+):
     """Get a source by ID."""
-    result = await db.execute(select(Source).where(Source.id == source_id))
-    source = result.scalar_one_or_none()
-    if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
-    return source
+    return await service.get_by_id(source_id)
 
 
 @router.put("/{source_id}", response_model=SourceResponse)
 async def update_source(
     source_id: str,
     source_data: SourceUpdate,
-    db: AsyncSession = Depends(get_db),
+    service: SourceService = Depends(get_source_service),
 ):
     """Update a source."""
-    result = await db.execute(select(Source).where(Source.id == source_id))
-    source = result.scalar_one_or_none()
-    if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
-
-    update_data = source_data.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(source, field, value)
-
-    await db.flush()
-    await db.refresh(source)
-    return source
+    return await service.update(source_id, source_data)
 
 
 @router.delete("/{source_id}", status_code=204)
-async def delete_source(source_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_source(
+    source_id: str,
+    service: SourceService = Depends(get_source_service),
+):
     """Delete a source."""
-    result = await db.execute(select(Source).where(Source.id == source_id))
-    source = result.scalar_one_or_none()
-    if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
-    await db.delete(source)
+    await service.delete(source_id)
