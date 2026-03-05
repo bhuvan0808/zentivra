@@ -1,15 +1,11 @@
 """Digests API - View and download daily intelligence digests."""
 
-from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
-from app.models.digest import Digest
+from app.dependencies import get_digest_service
 from app.schemas.digest import DigestResponse
+from app.services.digest_service import DigestService
 
 router = APIRouter(prefix="/digests", tags=["Digests"])
 
@@ -17,53 +13,38 @@ router = APIRouter(prefix="/digests", tags=["Digests"])
 @router.get("/", response_model=list[DigestResponse])
 async def list_digests(
     limit: int = Query(30, ge=1, le=100),
-    db: AsyncSession = Depends(get_db),
+    service: DigestService = Depends(get_digest_service),
 ):
     """List all digests, most recent first."""
-    query = select(Digest).order_by(Digest.date.desc()).limit(limit)
-    result = await db.execute(query)
-    return result.scalars().all()
+    return await service.list_digests(limit=limit)
 
 
 @router.get("/latest", response_model=DigestResponse)
-async def get_latest_digest(db: AsyncSession = Depends(get_db)):
+async def get_latest_digest(
+    service: DigestService = Depends(get_digest_service),
+):
     """Get the most recent digest."""
-    result = await db.execute(
-        select(Digest).order_by(Digest.date.desc()).limit(1)
-    )
-    digest = result.scalar_one_or_none()
-    if not digest:
-        raise HTTPException(status_code=404, detail="No digests found")
-    return digest
+    return await service.get_latest()
 
 
 @router.get("/{digest_id}", response_model=DigestResponse)
-async def get_digest(digest_id: str, db: AsyncSession = Depends(get_db)):
+async def get_digest(
+    digest_id: str,
+    service: DigestService = Depends(get_digest_service),
+):
     """Get a digest by ID."""
-    result = await db.execute(select(Digest).where(Digest.id == digest_id))
-    digest = result.scalar_one_or_none()
-    if not digest:
-        raise HTTPException(status_code=404, detail="Digest not found")
-    return digest
+    return await service.get_by_id(digest_id)
 
 
 @router.get("/{digest_id}/pdf")
-async def download_digest_pdf(digest_id: str, db: AsyncSession = Depends(get_db)):
+async def download_digest_pdf(
+    digest_id: str,
+    service: DigestService = Depends(get_digest_service),
+):
     """Download the PDF for a digest."""
-    result = await db.execute(select(Digest).where(Digest.id == digest_id))
-    digest = result.scalar_one_or_none()
-    if not digest:
-        raise HTTPException(status_code=404, detail="Digest not found")
-    if not digest.pdf_path:
-        raise HTTPException(status_code=404, detail="PDF not yet generated for this digest")
-
-    from pathlib import Path
-    pdf_path = Path(digest.pdf_path)
-    if not pdf_path.exists():
-        raise HTTPException(status_code=404, detail="PDF file not found on disk")
-
+    pdf_path = await service.get_pdf_path(digest_id)
     return FileResponse(
         path=str(pdf_path),
         media_type="application/pdf",
-        filename=f"zentivra_digest_{digest.date}.pdf",
+        filename=f"zentivra_digest_{pdf_path.stem}.pdf",
     )

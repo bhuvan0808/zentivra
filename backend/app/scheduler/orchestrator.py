@@ -13,7 +13,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 
-import structlog
+from app.utils.logger import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,7 +30,7 @@ from app.models.run import Run, RunStatus
 from app.models.source import AgentType, Source
 from app.notifications.email_service import EmailService
 
-logger = structlog.get_logger(__name__)
+from app.utils.logger import logger
 
 # Agent type to agent class mapping
 AGENT_MAP = {
@@ -61,13 +61,13 @@ class Orchestrator:
 
         This is the main entry point called by the scheduler or manual trigger.
         """
-        logger.info("pipeline_run_start", run_id=run_id[:8])
+        logger.info("pipeline_run_start run_id=%s", run_id[:8])
 
         async with async_session() as db:
             # Update run status to RUNNING
             run = await self._get_run(run_id, db)
             if not run:
-                logger.error("run_not_found", run_id=run_id)
+                logger.error("run_not_found run_id=%s", run_id)
                 return
 
             run.status = RunStatus.RUNNING
@@ -95,7 +95,7 @@ class Orchestrator:
                     try:
                         pdf_path = self.pdf_renderer.render(digest_data)
                     except Exception as e:
-                        logger.error("pdf_generation_error", error=str(e))
+                        logger.error("pdf_generation_error error=%s", str(e))
 
                 # ── Phase 4: Send email ──────────────────────────────────
                 email_sent = False
@@ -111,7 +111,7 @@ class Orchestrator:
                             pdf_path=pdf_path,
                         )
                     except Exception as e:
-                        logger.error("email_send_error", error=str(e))
+                        logger.error("email_send_error error=%s", str(e))
 
                 # ── Phase 5: Save digest record ──────────────────────────
                 digest = Digest(
@@ -145,16 +145,16 @@ class Orchestrator:
                 await db.commit()
 
                 logger.info(
-                    "pipeline_run_complete",
-                    run_id=run_id[:8],
-                    status=run.status,
-                    findings=run.total_findings,
-                    pdf=pdf_path is not None,
-                    email=email_sent,
+                    "pipeline_run_complete run_id=%s status=%s findings=%d pdf=%s email=%s",
+                    run_id[:8],
+                    run.status,
+                    run.total_findings,
+                    pdf_path is not None,
+                    email_sent,
                 )
 
             except Exception as e:
-                logger.error("pipeline_run_error", run_id=run_id[:8], error=str(e))
+                logger.error("pipeline_run_error run_id=%s error=%s", run_id[:8], str(e))
                 run.status = RunStatus.FAILED
                 run.error_log = str(e)
                 run.completed_at = datetime.now(timezone.utc)
@@ -197,9 +197,9 @@ class Orchestrator:
 
             if isinstance(result, Exception):
                 logger.error(
-                    "agent_failed",
-                    agent=agent_name,
-                    error=str(result),
+                    "agent_failed agent=%s error=%s",
+                    agent_name,
+                    str(result),
                 )
                 if run and run.agent_statuses:
                     run.agent_statuses[agent_name] = "failed"
@@ -215,9 +215,9 @@ class Orchestrator:
             await db.flush()
 
         logger.info(
-            "all_agents_complete",
-            total_findings=len(all_findings),
-            agents_run=len(tasks),
+            "all_agents_complete total_findings=%d agents_run=%d",
+            len(all_findings),
+            len(tasks),
         )
 
         return all_findings

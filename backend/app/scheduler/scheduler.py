@@ -8,13 +8,13 @@ Also exposes functions for manual triggering.
 import asyncio
 from datetime import datetime, timezone
 
-import structlog
+from app.utils.logger import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.config import settings
 
-logger = structlog.get_logger(__name__)
+from app.utils.logger import logger
 
 # Global scheduler instance
 _scheduler: AsyncIOScheduler | None = None
@@ -30,7 +30,7 @@ async def scheduled_run():
     from app.models.run import Run
     from app.scheduler.orchestrator import Orchestrator
 
-    logger.info("scheduled_run_triggered", time=datetime.now(timezone.utc).isoformat())
+    logger.info("scheduled_run_triggered time=%s", datetime.now(timezone.utc).isoformat())
 
     async with async_session() as db:
         run = Run(triggered_by="scheduler")
@@ -76,7 +76,7 @@ async def _execute_in_background(run_id: str):
         orchestrator = Orchestrator()
         await orchestrator.execute_run(run_id)
     except Exception as e:
-        logger.error("background_run_error", run_id=run_id[:8], error=str(e))
+        logger.error("background_run_error run_id=%s error=%s", run_id[:8], str(e))
 
         # Update run status to failed
         from app.database import async_session
@@ -130,9 +130,9 @@ def start_scheduler():
 
     _scheduler.start()
     logger.info(
-        "scheduler_started",
-        digest_time=f"{hour:02d}:{minute:02d}",
-        timezone=settings.timezone,
+        "scheduler_started digest_time=%s timezone=%s",
+        f"{hour:02d}:{minute:02d}",
+        settings.timezone,
     )
 
 

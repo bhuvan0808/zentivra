@@ -13,7 +13,7 @@ Steps:
 from datetime import date, datetime, timezone
 from typing import Optional
 
-import structlog
+from app.utils.logger import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +25,7 @@ from app.models.digest import Digest
 from app.models.finding import Finding
 from app.models.run import Run
 
-logger = structlog.get_logger(__name__)
+from app.utils.logger import logger
 
 # Section ordering for the digest
 SECTION_ORDER = [
@@ -75,9 +75,9 @@ class DigestCompiler:
         - executive_summary
         - sections (dict of section_name -> {narrative, findings})
         - total_findings
-        - pdf_path (after rendering)
+        -         pdf_path (after rendering)
         """
-        logger.info("digest_compile_start", run_id=run_id[:8], findings=len(findings))
+        logger.info("digest_compile_start run_id=%s findings=%d", run_id[:8], len(findings))
 
         if not findings:
             return self._empty_digest(run_id)
@@ -86,9 +86,9 @@ class DigestCompiler:
         dedup_result = self.dedup_engine.deduplicate(findings)
         unique_findings = dedup_result.unique_findings
         logger.info(
-            "dedup_complete",
-            unique=dedup_result.total_unique,
-            duplicates=dedup_result.total_duplicates,
+            "dedup_complete unique=%d duplicates=%d",
+            dedup_result.total_unique,
+            dedup_result.total_duplicates,
         )
 
         # Step 2: Rank by impact
@@ -106,7 +106,7 @@ class DigestCompiler:
             }
             narratives = await self.summarizer.generate_narrative(findings_for_narrative)
         except Exception as e:
-            logger.error("narrative_generation_error", error=str(e))
+            logger.error("narrative_generation_error error=%s", str(e))
             for section_name in sections:
                 narratives[section_name] = self._fallback_narrative(
                     sections[section_name]["findings"]
@@ -124,7 +124,7 @@ class DigestCompiler:
                 narratives, len(ranked_findings)
             )
         except Exception as e:
-            logger.error("executive_summary_error", error=str(e))
+            logger.error("executive_summary_error error=%s", str(e))
             executive_summary = self._fallback_executive_summary(
                 ranked_findings, sections
             )
@@ -144,9 +144,9 @@ class DigestCompiler:
         }
 
         logger.info(
-            "digest_compile_complete",
-            sections=len(sections),
-            total_findings=len(ranked_findings),
+            "digest_compile_complete sections=%d total_findings=%d",
+            len(sections),
+            len(ranked_findings),
         )
 
         return digest_data
@@ -286,7 +286,7 @@ class DigestCompiler:
                 db.add(finding)
 
             await db.flush()
-            logger.info("findings_saved", count=len(findings))
+            logger.info("findings_saved count=%d", len(findings))
 
         except Exception as e:
-            logger.error("save_findings_error", error=str(e))
+            logger.error("save_findings_error error=%s", str(e))

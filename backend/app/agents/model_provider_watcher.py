@@ -7,12 +7,9 @@ from foundation model providers (OpenAI, Google, Anthropic, etc.).
 
 import re
 
-import structlog
+from app.utils.logger import logger
 
 from app.agents.base_agent import BaseAgent
-from app.models.source import Source
-
-logger = structlog.get_logger(__name__)
 
 # Keywords specific to model provider updates
 MODEL_KEYWORDS = [

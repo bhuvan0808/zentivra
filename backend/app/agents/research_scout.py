@@ -9,13 +9,11 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
-import structlog
+from app.utils.logger import logger
 
 from app.agents.base_agent import BaseAgent
 from app.core.extractor import FeedEntry
 from app.models.source import Source
-
-logger = structlog.get_logger(__name__)
 
 # Relevance keywords from spec
 RELEVANCE_KEYWORDS = {
@@ -134,20 +132,20 @@ class ResearchScout(BaseAgent):
                         if url:
                             urls.append(url)
                     logger.info(
-                        "semantic_scholar_results",
-                        query=query,
-                        results=len(urls),
+                        "semantic_scholar_results query=%s results=%d",
+                        query,
+                        len(urls),
                     )
                     return urls
                 else:
                     logger.warning(
-                        "semantic_scholar_error",
-                        status=resp.status_code,
+                        "semantic_scholar_error status=%d",
+                        resp.status_code,
                     )
                     return []
 
         except Exception as e:
-            logger.error("semantic_scholar_error", error=str(e))
+            logger.error("semantic_scholar_error error=%s", str(e))
             return []
 
     async def post_process_finding(

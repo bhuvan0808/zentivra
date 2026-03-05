@@ -15,11 +15,9 @@ from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Optional
 
-import structlog
+from app.utils.logger import logger
 
 from app.config import settings
-
-logger = structlog.get_logger(__name__)
 
 
 class EmailService:
@@ -76,7 +74,7 @@ class EmailService:
                 return False
 
         except Exception as e:
-            logger.error("email_send_error", error=str(e))
+            logger.error("email_send_error error=%s", str(e))
             return False
 
     async def _send_via_sendgrid(
@@ -124,9 +122,9 @@ class EmailService:
             response = sg.send(message)
 
             logger.info(
-                "email_sent_sendgrid",
-                recipients=len(recipients),
-                status=response.status_code,
+                "email_sent_sendgrid recipients=%d status=%d",
+                len(recipients),
+                response.status_code,
             )
             return response.status_code in (200, 201, 202)
 
@@ -172,9 +170,9 @@ class EmailService:
                 server.send_message(msg)
 
             logger.info(
-                "email_sent_smtp",
-                recipients=len(recipients),
-                host=settings.smtp_host,
+                "email_sent_smtp recipients=%d host=%s",
+                len(recipients),
+                settings.smtp_host,
             )
             return True
 

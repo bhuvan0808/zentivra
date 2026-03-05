@@ -7,11 +7,9 @@ Uses the spec-defined formula:
 Scoring can be done via LLM-assisted evaluation or heuristic rules.
 """
 
-import structlog
+from app.utils.logger import logger
 
 from app.core.summarizer import Summarizer
-
-logger = structlog.get_logger(__name__)
 
 # Weights from spec section 14
 RELEVANCE_WEIGHT = 0.35
@@ -78,7 +76,7 @@ class Ranker:
                     finding["impact_score"] = scores.get("impact_score", 0.5)
 
                 except Exception as e:
-                    logger.error("llm_ranking_error", error=str(e))
+                    logger.error("llm_ranking_error error=%s", str(e))
                     self._apply_heuristic_scores(finding)
             else:
                 self._apply_heuristic_scores(finding)
@@ -87,9 +85,9 @@ class Ranker:
         findings.sort(key=lambda f: f.get("impact_score", 0), reverse=True)
 
         logger.info(
-            "ranking_complete",
-            total=len(findings),
-            top_score=findings[0].get("impact_score", 0) if findings else 0,
+            "ranking_complete total=%d top_score=%.3f",
+            len(findings),
+            findings[0].get("impact_score", 0) if findings else 0,
         )
 
         return findings

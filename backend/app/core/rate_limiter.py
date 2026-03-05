@@ -10,9 +10,7 @@ import time
 from collections import defaultdict
 from urllib.parse import urlparse
 
-import structlog
-
-logger = structlog.get_logger(__name__)
+from app.utils.logger import logger
 
 
 class TokenBucket:
@@ -35,7 +33,7 @@ class TokenBucket:
 
             if self.tokens < 1:
                 wait_time = (1 - self.tokens) / self.rate
-                logger.debug("rate_limit_wait", wait_seconds=round(wait_time, 2))
+                logger.debug("rate_limit_wait wait_seconds=%.2f", wait_time)
                 await asyncio.sleep(wait_time)
                 self.tokens = 0
             else:
