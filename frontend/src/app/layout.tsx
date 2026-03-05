@@ -4,7 +4,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Sidebar } from "@/components/sidebar";
-import { PageTransition } from "@/components/page-transition";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -43,9 +42,7 @@ export default function RootLayout({
           <TooltipProvider delayDuration={300}>
             <div className="flex h-screen overflow-hidden">
               <Sidebar />
-              <main className="page-container">
-                <PageTransition>{children}</PageTransition>
-              </main>
+              <main className="page-container">{children}</main>
             </div>
             <ThemeToggle />
             <Toaster richColors closeButton />
