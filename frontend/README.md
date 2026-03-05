@@ -1,36 +1,60 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Zentivra Frontend
 
-## Getting Started
+Modern Next.js dashboard for the Frontier AI Radar system.
 
-First, run the development server:
+## Stack
+
+- Next.js 16 + React 19
+- Tailwind CSS v4
+- shadcn/ui (stone base theme)
+- Framer Motion (page transitions)
+- `next-themes` for light/dark mode
+
+## Pages
+
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+
+- `/` Dashboard
+- `/sources` Sources manager (full CRUD)
+- `/runs` Runs history
+- `/runs/[runId]` Run detail + logs/failures
+- `/findings` Findings explorer (filters + detail pane)
+- `/digests` Digest archive + PDF download
+- `/digests/[digestId]` Digest detail
+- `/bonus` Bonus view index
+- `/bonus/diff-viewer` What changed comparison
+- `/bonus/leaderboard` SOTA-style rankings
+- `/bonus/entity-heatmap` Entity density matrix
+
+## Environment
+
+Create `.env.local` in this folder:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+If not set, the app falls back to `http://localhost:8000`.
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+## Run locally
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm install
+npm run dev
+```
 
-## Learn More
+Open [http://localhost:3000](http://localhost:3000).
 
-To learn more about Next.js, take a look at the following resources:
+## Validation and error handling
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- API errors are normalized in `src/lib/api/errors.ts`.
+- Response message priority:
+  1. `message`
+  2. `detail` (string)
+  3. `detail[]` validation entries mapped to field errors
+- UI validations include user-friendly messages (for example max character constraints and invalid URL format).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Notes
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Keep backend CORS aligned with frontend origin (`http://localhost:3000` by default).
+- Digest PDF downloads use `/api/digests/{digest_id}/pdf`.
