@@ -14,10 +14,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urljoin
 
-import structlog
-
-logger = structlog.get_logger(__name__)
-
+from app.utils.logger import logger
 
 @dataclass
 class ExtractionResult:
@@ -155,7 +152,7 @@ class Extractor:
                 success=False, error="trafilatura not installed", method="trafilatura"
             )
         except Exception as e:
-            logger.error("trafilatura_error", error=str(e))
+            logger.error("trafilatura_error error=%s", str(e))
             return ExtractionResult(
                 success=False, error=str(e), method="trafilatura"
             )
@@ -206,7 +203,7 @@ class Extractor:
             )
 
         except Exception as e:
-            logger.error("selector_extraction_error", error=str(e))
+            logger.error("selector_extraction_error error=%s", str(e))
             return ExtractionResult(
                 success=False, error=str(e), method="css_selectors"
             )
@@ -261,7 +258,7 @@ class Extractor:
             )
 
         except Exception as e:
-            logger.error("beautifulsoup_error", error=str(e))
+            logger.error("beautifulsoup_error error=%s", str(e))
             return ExtractionResult(
                 success=False, error=str(e), method="beautifulsoup"
             )
@@ -300,11 +297,11 @@ class Extractor:
                     )
                 )
 
-            logger.info("feed_extracted", url=feed_url, entries=len(entries))
+            logger.info("feed_extracted url=%s entries=%d", feed_url, len(entries))
             return entries
 
         except Exception as e:
-            logger.error("feed_extraction_error", url=feed_url, error=str(e))
+            logger.error("feed_extraction_error url=%s error=%s", feed_url, str(e))
             return []
 
     def _extract_title(self, html: str) -> Optional[str]:

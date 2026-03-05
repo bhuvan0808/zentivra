@@ -8,12 +8,10 @@ and new SOTA claims.
 import re
 from typing import Optional
 
-import structlog
+from app.utils.logger import logger
 
 from app.agents.base_agent import BaseAgent
 from app.models.source import Source
-
-logger = structlog.get_logger(__name__)
 
 # Major benchmark names to track
 BENCHMARK_NAMES = [
