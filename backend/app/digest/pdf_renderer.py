@@ -12,12 +12,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import structlog
+from app.utils.logger import logger
 from jinja2 import Environment, FileSystemLoader
 
 from app.config import DIGESTS_DIR
 
-logger = structlog.get_logger(__name__)
+from app.utils.logger import logger
 
 # Template directory
 TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -60,7 +60,7 @@ class PDFRenderer:
         filename = f"zentivra_digest_{digest_date}.pdf"
         pdf_path = output_dir / filename
 
-        logger.info("pdf_render_start", output=str(pdf_path))
+        logger.info("pdf_render_start output=%s", str(pdf_path))
 
         # Render HTML from template
         html_content = self._render_html(digest_data)
@@ -69,16 +69,16 @@ class PDFRenderer:
         try:
             from weasyprint import HTML
             HTML(string=html_content).write_pdf(str(pdf_path))
-            logger.info("pdf_render_complete", path=str(pdf_path), size_kb=pdf_path.stat().st_size // 1024)
+            logger.info("pdf_render_complete path=%s size_kb=%d", str(pdf_path), pdf_path.stat().st_size // 1024)
         except ImportError:
             # Fallback: save as HTML if WeasyPrint is not available
-            logger.warning("weasyprint_not_available", fallback="html")
+            logger.warning("weasyprint_not_available fallback=html")
             html_path = output_dir / f"zentivra_digest_{digest_date}.html"
             html_path.write_text(html_content, encoding="utf-8")
             pdf_path = html_path
-            logger.info("html_fallback_saved", path=str(pdf_path))
+            logger.info("html_fallback_saved path=%s", str(pdf_path))
         except Exception as e:
-            logger.error("pdf_render_error", error=str(e))
+            logger.error("pdf_render_error error=%s", str(e))
             # Save HTML as fallback
             html_path = output_dir / f"zentivra_digest_{digest_date}.html"
             html_path.write_text(html_content, encoding="utf-8")
