@@ -217,23 +217,25 @@ export default function SourcesPage() {
         title="Sources"
         description="Manage crawl sources for each agent."
       >
-        <Select value={filterType} onValueChange={setFilterType}>
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="All types" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All types</SelectItem>
-            {AGENT_TYPE_OPTIONS.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button onClick={openCreate}>
-          <Plus className="mr-1.5 size-4" />
-          Add Source
-        </Button>
+        <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end md:w-auto">
+          <Select value={filterType} onValueChange={setFilterType}>
+            <SelectTrigger className="w-full sm:w-44 md:w-48">
+              <SelectValue placeholder="All types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All types</SelectItem>
+              {AGENT_TYPE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button onClick={openCreate} className="w-full sm:w-auto">
+            <Plus className="mr-1.5 size-4" />
+            Add New Source
+          </Button>
+        </div>
       </PageHeader>
 
       <Card>
@@ -313,8 +315,8 @@ export default function SourcesPage() {
 
       {/* Create / Edit dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader className="space-y-2 pr-8">
             <DialogTitle>
               {editingSource ? "Edit Source" : "Add New Source"}
             </DialogTitle>
@@ -325,8 +327,8 @@ export default function SourcesPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4 py-2">
-            <div>
+          <div className="grid gap-5 py-2 sm:grid-cols-2">
+            <div className="space-y-2">
               <Label htmlFor="name">Name</Label>
               <Input
                 id="name"
@@ -341,7 +343,7 @@ export default function SourcesPage() {
               )}
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="agent_type">Agent Type</Label>
               <Select
                 value={form.agent_type}
@@ -362,7 +364,7 @@ export default function SourcesPage() {
               </Select>
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="url">URL</Label>
               <Input
                 id="url"
@@ -377,7 +379,7 @@ export default function SourcesPage() {
               )}
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="feed_url">Feed URL (optional)</Label>
               <Input
                 id="feed_url"
@@ -392,7 +394,7 @@ export default function SourcesPage() {
               )}
             </div>
 
-            <div>
+            <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="keywords">Keywords (comma-separated)</Label>
               <Input
                 id="keywords"
@@ -407,52 +409,50 @@ export default function SourcesPage() {
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="rate_limit">Rate Limit (rpm)</Label>
-                <Input
-                  id="rate_limit"
-                  type="number"
-                  min={1}
-                  max={60}
-                  value={form.rate_limit_rpm}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      rate_limit_rpm: Number(e.target.value),
-                    })
-                  }
-                />
-                {fieldError("rate_limit_rpm") && (
-                  <p className="field-error">
-                    {fieldError("rate_limit_rpm")}
-                  </p>
-                )}
-              </div>
-              <div>
-                <Label htmlFor="crawl_depth">Crawl Depth</Label>
-                <Input
-                  id="crawl_depth"
-                  type="number"
-                  min={1}
-                  max={5}
-                  value={form.crawl_depth}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      crawl_depth: Number(e.target.value),
-                    })
-                  }
-                />
-                {fieldError("crawl_depth") && (
-                  <p className="field-error">
-                    {fieldError("crawl_depth")}
-                  </p>
-                )}
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="rate_limit">Rate Limit (rpm)</Label>
+              <Input
+                id="rate_limit"
+                type="number"
+                min={1}
+                max={60}
+                value={form.rate_limit_rpm}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    rate_limit_rpm: Number(e.target.value),
+                  })
+                }
+              />
+              {fieldError("rate_limit_rpm") && (
+                <p className="field-error">
+                  {fieldError("rate_limit_rpm")}
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="crawl_depth">Crawl Depth</Label>
+              <Input
+                id="crawl_depth"
+                type="number"
+                min={1}
+                max={5}
+                value={form.crawl_depth}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    crawl_depth: Number(e.target.value),
+                  })
+                }
+              />
+              {fieldError("crawl_depth") && (
+                <p className="field-error">
+                  {fieldError("crawl_depth")}
+                </p>
+              )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 pt-1 sm:col-span-2">
               <Switch
                 id="enabled"
                 checked={form.enabled}
@@ -464,7 +464,7 @@ export default function SourcesPage() {
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="pt-2">
             <Button
               variant="outline"
               onClick={() => setDialogOpen(false)}
