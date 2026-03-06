@@ -12,9 +12,18 @@ from app.models.source import Source
 
 # Keywords that indicate high-impact releases
 HIGH_IMPACT_KEYWORDS = [
-    "generally available", "GA", "pricing", "API", "security",
-    "deprecation", "breaking change", "new model", "launch",
-    "enterprise", "free tier", "rate limit",
+    "generally available",
+    "GA",
+    "pricing",
+    "API",
+    "security",
+    "deprecation",
+    "breaking change",
+    "new model",
+    "launch",
+    "enterprise",
+    "free tier",
+    "rate limit",
 ]
 
 

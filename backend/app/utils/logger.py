@@ -1,6 +1,7 @@
 import logging
 import sys
 
+
 def setup_logger():
     """
     Centralized logger configuration for Zentivra.
@@ -10,7 +11,9 @@ def setup_logger():
     logger.setLevel(logging.INFO)
 
     # Create format
-    log_format = "[%(asctime)s] - (%(levelname)s) - [%(filename)s:%(lineno)d] - %(message)s\n"
+    log_format = (
+        "[%(asctime)s] - (%(levelname)s) - [%(filename)s:%(lineno)d] - %(message)s\n"
+    )
     formatter = logging.Formatter(log_format)
 
     # Create stream handler
@@ -38,6 +41,7 @@ def setup_logger():
         logging.getLogger(logger_name).setLevel(logging.WARNING)
 
     return logger
+
 
 # Initialize the global logger instance
 logger = setup_logger()

@@ -15,19 +15,51 @@ from app.models.source import Source
 
 # Major benchmark names to track
 BENCHMARK_NAMES = [
-    "MMLU", "ARC", "HellaSwag", "TruthfulQA", "GSM8K", "WinoGrande",
-    "HumanEval", "MBPP", "MATH", "BigBench", "IFEval",
-    "MT-Bench", "AlpacaEval", "Chatbot Arena", "ELO",
-    "GPQA", "MuSR", "BBH",
+    "MMLU",
+    "ARC",
+    "HellaSwag",
+    "TruthfulQA",
+    "GSM8K",
+    "WinoGrande",
+    "HumanEval",
+    "MBPP",
+    "MATH",
+    "BigBench",
+    "IFEval",
+    "MT-Bench",
+    "AlpacaEval",
+    "Chatbot Arena",
+    "ELO",
+    "GPQA",
+    "MuSR",
+    "BBH",
 ]
 
 # Model families to track
 MODEL_FAMILIES = [
-    "Llama", "Mistral", "Mixtral", "Falcon", "Phi",
-    "Qwen", "Yi", "DeepSeek", "Gemma", "Command",
-    "DBRX", "Grok", "Jamba", "InternLM", "Baichuan",
-    "StarCoder", "CodeLlama", "WizardLM", "Vicuna",
-    "Orca", "Zephyr", "OpenHermes", "Neural",
+    "Llama",
+    "Mistral",
+    "Mixtral",
+    "Falcon",
+    "Phi",
+    "Qwen",
+    "Yi",
+    "DeepSeek",
+    "Gemma",
+    "Command",
+    "DBRX",
+    "Grok",
+    "Jamba",
+    "InternLM",
+    "Baichuan",
+    "StarCoder",
+    "CodeLlama",
+    "WizardLM",
+    "Vicuna",
+    "Orca",
+    "Zephyr",
+    "OpenHermes",
+    "Neural",
 ]
 
 
@@ -70,9 +102,7 @@ class HFBenchmarkTracker(BaseAgent):
 
             # Add HF API endpoint for trending models
             if "models" in source.url and "sort=trending" in source.url:
-                urls.append(
-                    "https://huggingface.co/api/models?sort=trending&limit=20"
-                )
+                urls.append("https://huggingface.co/api/models?sort=trending&limit=20")
 
         elif source.feed_url:
             feed_urls = await self._discover_from_feed(source.feed_url)

@@ -51,6 +51,7 @@ import {
   deleteSource,
 } from "@/lib/api";
 import { validateSourceForm, type ValidationError } from "@/lib/validation";
+import { AnimatedRow } from "@/components/animated-row";
 import type { Source, SourceCreate, AgentType } from "@/lib/types";
 
 const AGENT_TYPE_OPTIONS: { value: AgentType; label: string }[] = [
@@ -201,7 +202,7 @@ export default function SourcesPage() {
   if (loading) {
     return (
       <div>
-        <PageHeader title="Sources" />
+        <PageHeader title="Sources" description="Manage crawl sources for each agent." />
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-14 w-full" />
@@ -259,8 +260,8 @@ export default function SourcesPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                sources.map((source) => (
-                  <TableRow key={source.id}>
+                sources.map((source, i) => (
+                  <AnimatedRow key={source.id} index={i}>
                     <TableCell className="font-medium">{source.name}</TableCell>
                     <TableCell>
                       <StatusBadge variant="neutral">
@@ -305,7 +306,7 @@ export default function SourcesPage() {
                         </Button>
                       </div>
                     </TableCell>
-                  </TableRow>
+                  </AnimatedRow>
                 ))
               )}
             </TableBody>

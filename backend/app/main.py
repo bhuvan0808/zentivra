@@ -7,15 +7,48 @@ Run with:
     uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 """
 
+import time
+
 from app.utils.logger import logger
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.config import settings
 from app.database import init_db, close_db
 from app.api.router import api_router
+
+
+class RequestLoggingMiddleware:
+    """Raw ASGI middleware for request logging. Does NOT use BaseHTTPMiddleware,
+    which is known to break BackgroundTasks in some Starlette versions."""
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        start = time.perf_counter()
+        status_code = 500
+
+        async def send_wrapper(message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+        duration_ms = (time.perf_counter() - start) * 1000
+        method = scope.get("method", "")
+        path = scope.get("path", "")
+        logger.info("%s %s -> %d (%.0fms)", method, path, status_code, duration_ms)
 
 
 @asynccontextmanager
@@ -27,9 +60,6 @@ async def lifespan(app: FastAPI):
     # Initialize database tables (creates them if using SQLite)
     await init_db()
     logger.info("database_initialized url=%s...", settings.database_url[:30])
-
-    # Seed default sources from YAML config (if DB is empty)
-    await _seed_sources_from_config()
 
     # Log LLM provider status
     logger.info(
@@ -47,6 +77,7 @@ async def lifespan(app: FastAPI):
 
     # Start the daily scheduler
     from app.scheduler.scheduler import start_scheduler
+
     try:
         start_scheduler()
         logger.info("scheduler_started")
@@ -57,6 +88,7 @@ async def lifespan(app: FastAPI):
 
     # ── Shutdown ─────────────────────────────────────────────────────────
     from app.scheduler.scheduler import stop_scheduler
+
     stop_scheduler()
     await close_db()
     logger.info("zentivra_shutdown")
@@ -82,8 +114,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(RequestLoggingMiddleware)
+
 # Include API routes
 app.include_router(api_router)
+
+
+# ── Global Exception Handlers ────────────────────────────────────────────
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Return 422 validation errors in a consistent shape."""
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch-all for unhandled errors so the client always gets JSON."""
+    logger.error("unhandled_error path=%s error=%s", request.url.path, str(exc))
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
 
 
 @app.get("/", tags=["Health"])
@@ -114,59 +170,5 @@ async def health_check():
 async def scheduler_status():
     """Get scheduler status and next run time."""
     from app.scheduler.scheduler import get_scheduler_status
+
     return get_scheduler_status()
-
-
-async def _seed_sources_from_config():
-    """
-    Seed the database with sources from agents.yaml if the sources table is empty.
-    This only runs on first startup or fresh DB.
-    """
-    import yaml
-    from pathlib import Path
-    from sqlalchemy import select, func
-    from app.database import async_session
-    from app.models.source import Source, AgentType
-
-    config_path = Path(__file__).parent.parent / "config" / "agents.yaml"
-    if not config_path.exists():
-        logger.warning("agents_config_not_found path=%s", str(config_path))
-        return
-
-    async with async_session() as session:
-        # Check if sources already exist
-        result = await session.execute(select(func.count(Source.id)))
-        count = result.scalar() or 0
-        if count > 0:
-            logger.info("sources_already_seeded count=%d", count)
-            return
-
-        # Load YAML config
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
-
-        agent_type_map = {
-            "competitors": AgentType.COMPETITOR,
-            "model_providers": AgentType.MODEL_PROVIDER,
-            "research": AgentType.RESEARCH,
-            "hf_benchmarks": AgentType.HF_BENCHMARK,
-        }
-
-        total_seeded = 0
-        for section, agent_type in agent_type_map.items():
-            sources = config.get(section, [])
-            for src in sources:
-                source = Source(
-                    agent_type=agent_type,
-                    name=src["name"],
-                    url=src["url"],
-                    feed_url=src.get("feed_url"),
-                    css_selectors=src.get("css_selectors"),
-                    keywords=src.get("keywords"),
-                    rate_limit_rpm=src.get("rate_limit_rpm", 10),
-                )
-                session.add(source)
-                total_seeded += 1
-
-        await session.commit()
-        logger.info("sources_seeded_from_config total=%d", total_seeded)

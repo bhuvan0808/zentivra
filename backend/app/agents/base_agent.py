@@ -1,7 +1,7 @@
 """
 Base Agent - Shared interface that all agent workers implement.
 
-Provides the common pipeline: fetch → extract → detect changes → summarize → store.
+Provides the common pipeline: fetch -> extract -> detect changes -> summarize -> store.
 Each agent subclass customizes source discovery and extraction logic.
 """
 
@@ -22,6 +22,7 @@ from app.models.extraction import Extraction
 from app.models.finding import Finding
 from app.models.snapshot import Snapshot
 from app.models.source import Source
+from app.utils.run_logger import RunLogger
 
 
 class BaseAgent(ABC):
@@ -34,11 +35,15 @@ class BaseAgent(ABC):
         - post_process_finding(): agent-specific enrichment
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        llm_provider: Optional[str] = None,
+        llm_model: Optional[str] = None,
+    ):
         self.fetcher = Fetcher()
         self.extractor = Extractor()
         self.change_detector = ChangeDetector()
-        self.summarizer = Summarizer()
+        self.summarizer = Summarizer(provider=llm_provider, model=llm_model)
 
     @property
     @abstractmethod
@@ -57,6 +62,7 @@ class BaseAgent(ABC):
         sources: list[Source],
         since: Optional[datetime] = None,
         db: Optional[AsyncSession] = None,
+        run_logger: Optional[RunLogger] = None,
     ) -> list[dict]:
         """
         Execute the agent pipeline for all assigned sources.
@@ -68,16 +74,8 @@ class BaseAgent(ABC):
         4. Detect content changes
         5. Summarize new/changed content via LLM
         6. Store snapshots, extractions, and findings
-
-        Args:
-            run_id: Current pipeline run ID
-            sources: List of Source objects assigned to this agent
-            since: Only process content newer than this timestamp
-            db: Database session for persistence
-
-        Returns:
-            List of finding dicts ready for dedup/ranking
         """
+        rl = run_logger
         all_findings = []
         agent_log = {
             "sources_processed": 0,
@@ -86,37 +84,61 @@ class BaseAgent(ABC):
             "errors": [],
         }
 
-        logger.info(
-            "agent_run_start agent=%s run_id=%s sources=%d",
-            self.agent_type,
-            run_id[:8],
-            len(sources),
-        )
+        if rl:
+            rl.info(
+                "agent_run_start",
+                agent=self.agent_type,
+                phase="init",
+                sources=len(sources),
+            )
 
         for source in sources:
             if not source.enabled:
                 continue
 
             try:
-                findings = await self._process_source(run_id, source, since, db)
+                findings = await self._process_source(
+                    run_id, source, since, db, rl
+                )
                 all_findings.extend(findings)
                 agent_log["sources_processed"] += 1
                 agent_log["findings_created"] += len(findings)
 
             except Exception as e:
                 error_msg = f"Error processing source '{source.name}': {e}"
-                logger.error("agent_source_error source=%s error=%s", source.name, str(e))
+                if rl:
+                    rl.error(
+                        "agent_source_error",
+                        agent=self.agent_type,
+                        phase="error",
+                        source=source.name,
+                        error=str(e),
+                    )
+                else:
+                    logger.error(
+                        "agent_source_error source=%s error=%s",
+                        source.name,
+                        str(e),
+                    )
                 agent_log["errors"].append(error_msg)
 
-        logger.info(
-            "agent_run_complete agent=%s findings=%d sources_processed=%d urls_fetched=%d findings_created=%d errors=%s",
-            self.agent_type,
-            len(all_findings),
-            agent_log["sources_processed"],
-            agent_log["urls_fetched"],
-            agent_log["findings_created"],
-            str(agent_log["errors"]),
-        )
+        if rl:
+            rl.info(
+                "agent_run_complete",
+                agent=self.agent_type,
+                phase="done",
+                findings=len(all_findings),
+                sources_processed=agent_log["sources_processed"],
+                urls_fetched=agent_log["urls_fetched"],
+                findings_created=agent_log["findings_created"],
+                error_count=len(agent_log["errors"]),
+            )
+        else:
+            logger.info(
+                "agent_run_complete agent=%s findings=%d",
+                self.agent_type,
+                len(all_findings),
+            )
 
         return all_findings
 
@@ -126,35 +148,51 @@ class BaseAgent(ABC):
         source: Source,
         since: Optional[datetime],
         db: Optional[AsyncSession],
+        rl: Optional[RunLogger] = None,
     ) -> list[dict]:
-        """Process a single source: discover → fetch → extract → summarize."""
+        """Process a single source: discover -> fetch -> extract -> summarize."""
         findings = []
 
         # Step 1: Discover URLs to crawl
         urls = await self.discover_urls(source)
-        logger.info(
-            "urls_discovered agent=%s source=%s urls=%d",
-            self.agent_type,
-            source.name,
-            len(urls),
-        )
+
+        if rl:
+            rl.info(
+                "urls_discovered",
+                agent=self.agent_type,
+                phase="discover",
+                source=source.name,
+                url_count=len(urls),
+            )
 
         if not urls:
             return findings
 
         # Step 2-5: Process each URL
-        for url in urls:
+        for idx, url in enumerate(urls, 1):
             try:
-                finding = await self._process_url(run_id, source, url, since, db)
+                finding = await self._process_url(
+                    run_id, source, url, since, db, rl, url_idx=idx, url_total=len(urls)
+                )
                 if finding:
                     findings.append(finding)
             except Exception as e:
-                logger.error(
-                    "url_processing_error url=%s source=%s error=%s",
-                    url,
-                    source.name,
-                    str(e),
-                )
+                if rl:
+                    rl.error(
+                        "url_processing_error",
+                        agent=self.agent_type,
+                        phase="error",
+                        url=url,
+                        source=source.name,
+                        error=str(e),
+                    )
+                else:
+                    logger.error(
+                        "url_processing_error url=%s source=%s error=%s",
+                        url,
+                        source.name,
+                        str(e),
+                    )
 
         return findings
 
@@ -165,6 +203,9 @@ class BaseAgent(ABC):
         url: str,
         since: Optional[datetime],
         db: Optional[AsyncSession],
+        rl: Optional[RunLogger] = None,
+        url_idx: int = 0,
+        url_total: int = 0,
     ) -> Optional[dict]:
         """Process a single URL through the pipeline."""
 
@@ -175,8 +216,30 @@ class BaseAgent(ABC):
         )
 
         if not fetch_result.success:
-            logger.warning("fetch_failed url=%s error=%s", url, fetch_result.error)
+            if rl:
+                rl.warning(
+                    "fetch_failed",
+                    agent=self.agent_type,
+                    phase="fetch",
+                    url=url,
+                    status_code=fetch_result.status_code,
+                    error=fetch_result.error,
+                )
+            else:
+                logger.warning("fetch_failed url=%s error=%s", url, fetch_result.error)
             return None
+
+        if rl:
+            rl.info(
+                "url_fetched",
+                agent=self.agent_type,
+                phase="fetch",
+                url=url,
+                status_code=fetch_result.status_code,
+                content_length=len(fetch_result.content),
+                method=fetch_result.method,
+                progress=f"{url_idx}/{url_total}",
+            )
 
         # Step 3: Extract text + metadata
         extraction = self.extractor.extract_html(
@@ -186,8 +249,30 @@ class BaseAgent(ABC):
         )
 
         if not extraction.success or not extraction.text:
-            logger.warning("extraction_failed url=%s error=%s", url, extraction.error)
+            if rl:
+                rl.warning(
+                    "extraction_failed",
+                    agent=self.agent_type,
+                    phase="extract",
+                    url=url,
+                    error=extraction.error,
+                )
+            else:
+                logger.warning(
+                    "extraction_failed url=%s error=%s", url, extraction.error
+                )
             return None
+
+        if rl:
+            rl.info(
+                "text_extracted",
+                agent=self.agent_type,
+                phase="extract",
+                url=url,
+                text_length=len(extraction.text),
+                title=extraction.title,
+                method=extraction.method,
+            )
 
         # Step 4: Detect changes
         previous_content = None
@@ -196,18 +281,44 @@ class BaseAgent(ABC):
 
         change = self.change_detector.compare(previous_content, extraction.text)
 
-        # Skip if content hasn't significantly changed
         if not self.change_detector.is_significant_change(change):
-            logger.debug("no_significant_change url=%s", url)
-            # Still save snapshot for tracking
+            if rl:
+                rl.info(
+                    "no_significant_change",
+                    agent=self.agent_type,
+                    phase="change_detect",
+                    url=url,
+                )
             if db:
                 await self._save_snapshot(
-                    run_id, source.id, url, fetch_result, extraction,
-                    content_changed=False, db=db,
+                    run_id,
+                    source.id,
+                    url,
+                    fetch_result,
+                    extraction,
+                    content_changed=False,
+                    db=db,
                 )
             return None
 
+        if rl:
+            rl.info(
+                "change_detected",
+                agent=self.agent_type,
+                phase="change_detect",
+                url=url,
+                diff_hash=change.current_hash[:12],
+            )
+
         # Step 5: Summarize via LLM
+        if rl:
+            rl.info(
+                "summarization_start",
+                agent=self.agent_type,
+                phase="summarize",
+                url=url,
+            )
+
         summary = await self.summarizer.summarize(
             content=extraction.text,
             source_name=source.name,
@@ -216,17 +327,42 @@ class BaseAgent(ABC):
         )
 
         if not summary.success:
-            logger.warning("summarization_failed url=%s error=%s", url, summary.error)
+            if rl:
+                rl.warning(
+                    "summarization_failed",
+                    agent=self.agent_type,
+                    phase="summarize",
+                    url=url,
+                    error=summary.error,
+                )
+            else:
+                logger.warning(
+                    "summarization_failed url=%s error=%s", url, summary.error
+                )
             return None
+
+        if rl:
+            rl.info(
+                "summarization_complete",
+                agent=self.agent_type,
+                phase="summarize",
+                url=url,
+                confidence=summary.confidence,
+                category=summary.category,
+            )
 
         # Step 6: Store in database
         if db:
             await self._save_snapshot(
-                run_id, source.id, url, fetch_result, extraction,
-                content_changed=True, db=db,
+                run_id,
+                source.id,
+                url,
+                fetch_result,
+                extraction,
+                content_changed=True,
+                db=db,
             )
 
-        # Build finding dict
         finding = {
             "id": str(uuid.uuid4()),
             "run_id": run_id,
@@ -244,20 +380,23 @@ class BaseAgent(ABC):
             "tags": summary.tags,
             "entities": summary.entities,
             "diff_hash": change.current_hash,
-            "impact_score": 0.0,  # Will be set by Ranker
-            "is_duplicate": False,  # Will be set by Dedup
+            "impact_score": 0.0,
+            "is_duplicate": False,
             "cluster_id": None,
         }
 
-        # Agent-specific enrichment
         finding = await self.post_process_finding(finding, extraction, source)
 
-        logger.info(
-            "finding_created title=%s confidence=%.2f category=%s",
-            finding["title"][:60],
-            finding["confidence"],
-            finding["category"],
-        )
+        if rl:
+            rl.info(
+                "finding_created",
+                agent=self.agent_type,
+                phase="finding",
+                title=finding["title"][:80],
+                confidence=finding["confidence"],
+                category=finding["category"],
+                url=url,
+            )
 
         return finding
 
@@ -265,17 +404,15 @@ class BaseAgent(ABC):
         """
         Discover URLs to crawl from a source.
 
-        Default strategy: RSS feed → direct URL.
+        Default strategy: RSS feed -> direct URL.
         Subclasses can override for custom discovery (sitemap, API, etc.).
         """
         urls = []
 
-        # Try RSS/Atom feed first
         if source.feed_url:
             feed_urls = await self._discover_from_feed(source.feed_url)
             urls.extend(feed_urls)
 
-        # If no feed entries, use the direct URL
         if not urls:
             urls.append(source.url)
 
@@ -288,8 +425,6 @@ class BaseAgent(ABC):
             return []
 
         entries = self.extractor.extract_feed(result.content, feed_url)
-
-        # Return up to 10 most recent entry URLs
         return [e.link for e in entries[:10] if e.link]
 
     async def post_process_finding(
@@ -343,7 +478,7 @@ class BaseAgent(ABC):
                 run_id=run_id,
                 url=url,
                 content_hash=fetch_result.content_hash,
-                raw_content=fetch_result.content[:50000],  # Cap at 50KB
+                raw_content=fetch_result.content[:50000],
                 http_status=fetch_result.status_code,
                 content_changed=content_changed,
             )
@@ -352,7 +487,7 @@ class BaseAgent(ABC):
 
             ext = Extraction(
                 snapshot_id=snapshot.id,
-                extracted_text=extraction.text[:30000],  # Cap at 30KB
+                extracted_text=extraction.text[:30000],
                 metadata_={
                     "title": extraction.title,
                     "author": extraction.author,

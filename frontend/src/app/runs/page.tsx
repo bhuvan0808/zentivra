@@ -26,6 +26,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { getRuns, triggerRun, getRun } from "@/lib/api";
+import { AnimatedRow } from "@/components/animated-row";
 import type { Run } from "@/lib/types";
 
 export default function RunsPage() {
@@ -82,7 +83,7 @@ export default function RunsPage() {
   if (loading) {
     return (
       <div>
-        <PageHeader title="Runs" />
+        <PageHeader title="Runs" description="Trigger and monitor pipeline runs." />
         <div className="space-y-3">
           {Array.from({ length: 5 }).map((_, i) => (
             <Skeleton key={i} className="h-14 w-full" />
@@ -139,9 +140,10 @@ export default function RunsPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                runs.map((run) => (
-                  <TableRow
+                runs.map((run, i) => (
+                  <AnimatedRow
                     key={run.id}
+                    index={i}
                     className="cursor-pointer"
                     onClick={() => handleViewRun(run)}
                   >
@@ -197,7 +199,7 @@ export default function RunsPage() {
                         }
                       </div>
                     </TableCell>
-                  </TableRow>
+                  </AnimatedRow>
                 ))
               )}
             </TableBody>

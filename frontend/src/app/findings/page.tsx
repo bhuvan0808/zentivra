@@ -30,6 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { getFindings } from "@/lib/api";
+import { motion } from "framer-motion";
 import type { Finding, FindingCategory } from "@/lib/types";
 
 const CATEGORY_OPTIONS: { value: FindingCategory | "all"; label: string }[] = [
@@ -153,10 +154,16 @@ export default function FindingsPage() {
       ) : (
         <>
           <div className="grid gap-4 md:grid-cols-2">
-            {findings.map((finding) => {
+            {findings.map((finding, i) => {
               const isExpanded = expandedId === finding.id;
               return (
-                <Card key={finding.id} className="overflow-hidden">
+                <motion.div
+                  key={finding.id}
+                  initial={{ opacity: 0, filter: "blur(4px)" }}
+                  animate={{ opacity: 1, filter: "blur(0px)" }}
+                  transition={{ duration: 0.35, delay: i * 0.05, ease: "easeOut" }}
+                >
+                <Card className="overflow-hidden">
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between gap-2">
                       <h3 className="text-sm font-semibold leading-snug">
@@ -283,6 +290,7 @@ export default function FindingsPage() {
                     )}
                   </CardContent>
                 </Card>
+                </motion.div>
               );
             })}
           </div>

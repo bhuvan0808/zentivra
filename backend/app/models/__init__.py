@@ -5,5 +5,14 @@ from app.models.extraction import Extraction
 from app.models.finding import Finding
 from app.models.run import Run
 from app.models.digest import Digest
+from app.models.orchestrator_config import OrchestratorConfig
 
-__all__ = ["Source", "Snapshot", "Extraction", "Finding", "Run", "Digest"]
+__all__ = [
+    "Source",
+    "Snapshot",
+    "Extraction",
+    "Finding",
+    "Run",
+    "Digest",
+    "OrchestratorConfig",
+]

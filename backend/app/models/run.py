@@ -41,6 +41,7 @@ class Run(Base):
     agent_statuses: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     total_findings: Mapped[int] = mapped_column(Integer, default=0)
     error_log: Mapped[str | None] = mapped_column(Text, nullable=True)
+    log_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     triggered_by: Mapped[str] = mapped_column(
         String(50), default="scheduler"  # "scheduler" or "manual"
     )
@@ -48,7 +49,9 @@ class Run(Base):
     # Relationships
     snapshots = relationship("Snapshot", back_populates="run", lazy="selectin")
     findings = relationship("Finding", back_populates="run", lazy="selectin")
-    digest = relationship("Digest", back_populates="run", uselist=False, lazy="selectin")
+    digest = relationship(
+        "Digest", back_populates="run", uselist=False, lazy="selectin"
+    )
 
     def __repr__(self) -> str:
         return f"<Run(id='{self.id[:8]}', status='{self.status}')>"

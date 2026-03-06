@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Space_Grotesk } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { SidebarProvider } from "@/components/sidebar-context";
 import { Sidebar } from "@/components/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
@@ -40,10 +41,12 @@ export default function RootLayout({
       >
         <ThemeProvider>
           <TooltipProvider delayDuration={300}>
-            <div className="flex h-screen overflow-hidden">
-              <Sidebar />
-              <main className="page-container">{children}</main>
-            </div>
+            <SidebarProvider>
+              <div className="flex h-screen overflow-hidden">
+                <Sidebar />
+                <main className="page-container">{children}</main>
+              </div>
+            </SidebarProvider>
             <ThemeToggle />
             <Toaster richColors closeButton />
           </TooltipProvider>

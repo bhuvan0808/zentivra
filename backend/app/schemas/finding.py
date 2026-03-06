@@ -10,6 +10,7 @@ from app.models.finding import FindingCategory
 
 class FindingResponse(BaseModel):
     """Schema for finding API responses."""
+
     id: str
     run_id: str
     source_id: str
@@ -34,6 +35,7 @@ class FindingResponse(BaseModel):
 
 class FindingFilters(BaseModel):
     """Query filters for browsing findings."""
+
     category: Optional[FindingCategory] = None
     min_confidence: Optional[float] = None
     min_impact: Optional[float] = None

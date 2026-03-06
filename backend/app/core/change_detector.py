@@ -5,17 +5,19 @@ Detects whether a page has changed since the last fetch by comparing
 content hashes. If changed, generates a human-readable diff.
 """
 
+from dataclasses import dataclass
 import difflib
 import hashlib
 import re
-from dataclasses import dataclass
 from typing import Optional
 
 from app.utils.logger import logger
 
+
 @dataclass
 class ChangeResult:
     """Result of change detection between two content versions."""
+
     has_changed: bool
     current_hash: str
     previous_hash: Optional[str] = None
@@ -56,7 +58,9 @@ class ChangeDetector:
 
         # Remove common dynamic content patterns
         # Timestamps like "2024-01-15T10:30:00Z" or "Jan 15, 2024 10:30 AM"
-        text = re.sub(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[Z+\-\d:]*", "[TIMESTAMP]", text)
+        text = re.sub(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[Z+\-\d:]*", "[TIMESTAMP]", text
+        )
 
         # Remove session-like tokens (long hex/base64 strings)
         text = re.sub(r"[a-f0-9]{32,}", "[TOKEN]", text)
@@ -117,16 +121,22 @@ class ChangeDetector:
         prev_lines = self.canonicalize(previous_content).splitlines()
         curr_lines = self.canonicalize(current_content).splitlines()
 
-        diff = list(difflib.unified_diff(
-            prev_lines,
-            curr_lines,
-            lineterm="",
-            n=context_lines,
-        ))
+        diff = list(
+            difflib.unified_diff(
+                prev_lines,
+                curr_lines,
+                lineterm="",
+                n=context_lines,
+            )
+        )
 
         # Count additions and removals
-        added = sum(1 for line in diff if line.startswith("+") and not line.startswith("+++"))
-        removed = sum(1 for line in diff if line.startswith("-") and not line.startswith("---"))
+        added = sum(
+            1 for line in diff if line.startswith("+") and not line.startswith("+++")
+        )
+        removed = sum(
+            1 for line in diff if line.startswith("-") and not line.startswith("---")
+        )
 
         # Compute change ratio using SequenceMatcher
         matcher = difflib.SequenceMatcher(None, prev_lines, curr_lines)
@@ -135,7 +145,9 @@ class ChangeDetector:
         diff_text = "\n".join(diff) if diff else None
 
         # Generate summary
-        diff_summary = f"{added} lines added, {removed} lines removed ({change_ratio:.1%} changed)"
+        diff_summary = (
+            f"{added} lines added, {removed} lines removed ({change_ratio:.1%} changed)"
+        )
 
         logger.info(
             "change_detected added=%d removed=%d ratio=%.3f",
