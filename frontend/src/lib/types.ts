@@ -60,6 +60,38 @@ export interface TriggerRunResponse {
   readonly status: string;
 }
 
+export interface RunTriggerRequest {
+  agent_types?: AgentType[];
+  source_ids?: string[];
+  recipients?: string[];
+  max_sources_per_agent?: number;
+}
+
+export interface RunAgentSummary {
+  readonly agent_type: AgentType;
+  readonly status: string;
+  readonly findings_count: number;
+  readonly urls_crawled: number;
+  readonly last_activity_at: string | null;
+}
+
+export interface RunAgentActivity {
+  readonly source_name: string;
+  readonly url: string;
+  readonly http_status: number | null;
+  readonly content_changed: boolean | null;
+  readonly fetched_at: string;
+}
+
+export interface RunAgentLog {
+  readonly id: string;
+  readonly agent_type: AgentType;
+  readonly level: string;
+  readonly message: string;
+  readonly context: Record<string, unknown> | null;
+  readonly created_at: string;
+}
+
 export interface Finding {
   readonly id: string;
   readonly run_id: string;
@@ -67,19 +99,19 @@ export interface Finding {
   readonly title: string;
   readonly date_detected: string;
   readonly source_url: string;
-  readonly publisher: string;
+  readonly publisher: string | null;
   readonly category: FindingCategory;
-  readonly summary_short: string;
-  readonly summary_long: string;
-  readonly why_it_matters: string;
-  readonly evidence: { claims: string[] };
+  readonly summary_short: string | null;
+  readonly summary_long: string | null;
+  readonly why_it_matters: string | null;
+  readonly evidence: { claims: string[] } | null;
   readonly confidence: number;
-  readonly tags: string[];
+  readonly tags: string[] | null;
   readonly entities: {
     companies: string[];
     models: string[];
     datasets: string[];
-  };
+  } | null;
   readonly impact_score: number;
   readonly is_duplicate: boolean;
   readonly cluster_id: string | null;
@@ -99,9 +131,27 @@ export interface Digest {
   readonly pdf_path: string;
   readonly email_sent: boolean;
   readonly sent_at: string | null;
-  readonly recipients: string[];
+  readonly recipients: string[] | null;
+  readonly sections?: Record<string, { count: number; narrative: string }> | null;
   readonly total_findings: number;
   readonly created_at: string;
+}
+
+export interface DisruptiveArticleRequest {
+  url: string;
+  recipient_email: string;
+  agent_types?: AgentType[];
+  title?: string;
+}
+
+export interface DisruptiveArticleResponse {
+  readonly report_id: string;
+  readonly findings_count: number;
+  readonly email_sent: boolean;
+  readonly pdf_path: string | null;
+  readonly pdf_download_url: string | null;
+  readonly agents_used: AgentType[];
+  readonly message: string;
 }
 
 export interface HealthStatus {

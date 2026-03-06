@@ -307,15 +307,34 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
         from google import genai
 
         client = genai.Client(api_key=settings.gemini_api_key)
+        timeout_seconds = max(1, int(settings.llm_timeout_seconds))
 
         max_retries = 5
         for attempt in range(max_retries):
             try:
-                response = client.models.generate_content(
-                    model="gemini-2.0-flash-lite",
-                    contents=prompt,
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        client.models.generate_content,
+                        model=settings.gemini_model,
+                        contents=prompt,
+                    ),
+                    timeout=timeout_seconds,
                 )
-                return response.text
+                return response.text or ""
+            except asyncio.TimeoutError:
+                if attempt < max_retries - 1:
+                    wait = 2 ** (attempt + 1)
+                    logger.warning(
+                        "gemini_timeout_retry timeout=%d wait=%d attempt=%d",
+                        timeout_seconds,
+                        wait,
+                        attempt + 1,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                raise TimeoutError(
+                    f"Gemini request timed out after {timeout_seconds} seconds"
+                )
             except Exception as e:
                 error_str = str(e)
                 # Check for rate-limit / retryDelay
@@ -347,12 +366,12 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "gpt-4o-mini",
+                    "model": settings.openai_model,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.3,
                     "max_tokens": 2048,
                 },
-                timeout=60,
+                timeout=settings.llm_timeout_seconds,
             )
             response.raise_for_status()
             data = response.json()
@@ -371,11 +390,11 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
                     "anthropic-version": "2023-06-01",
                 },
                 json={
-                    "model": "claude-sonnet-4-20250514",
+                    "model": settings.anthropic_model,
                     "max_tokens": 2048,
                     "messages": [{"role": "user", "content": prompt}],
                 },
-                timeout=60,
+                timeout=settings.llm_timeout_seconds,
             )
             response.raise_for_status()
             data = response.json()
@@ -393,12 +412,12 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "llama-3.3-70b-versatile",
+                    "model": settings.groq_model,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.3,
                     "max_tokens": 2048,
                 },
-                timeout=60,
+                timeout=settings.llm_timeout_seconds,
             )
             response.raise_for_status()
             data = response.json()
@@ -418,12 +437,12 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
                     "X-Title": "Zentivra AI Radar",
                 },
                 json={
-                    "model": "meta-llama/llama-3.3-70b-instruct",
+                    "model": settings.openrouter_model,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.3,
                     "max_tokens": 2048,
                 },
-                timeout=60,
+                timeout=settings.llm_timeout_seconds,
             )
             response.raise_for_status()
             data = response.json()

@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from app.utils.logger import logger
+from app.config import settings
 
 @dataclass
 class DedupResult:
@@ -35,8 +36,17 @@ class DedupEngine:
         result = engine.deduplicate(findings)
     """
 
-    def __init__(self, similarity_threshold: float = 0.85):
+    def __init__(
+        self,
+        similarity_threshold: float = 0.85,
+        use_semantic_dedup: Optional[bool] = None,
+    ):
         self.similarity_threshold = similarity_threshold
+        self.use_semantic_dedup = (
+            settings.enable_semantic_dedup
+            if use_semantic_dedup is None
+            else use_semantic_dedup
+        )
         self._model = None
 
     def _get_embedding_model(self):
@@ -89,7 +99,7 @@ class DedupEngine:
         # Phase 2: Semantic similarity dedup
         non_dup_findings = [f for f in findings if f["id"] not in duplicate_ids]
 
-        if len(non_dup_findings) > 1:
+        if self.use_semantic_dedup and len(non_dup_findings) > 1:
             model = self._get_embedding_model()
             if model:
                 semantic_dups = self._semantic_dedup(non_dup_findings, model)

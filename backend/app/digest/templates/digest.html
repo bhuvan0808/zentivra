@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zentivra AI Radar — {{ date }}</title>
+<style>
+    @page {
+        size: A4;
+        margin: 1.8cm 2cm;
+        @bottom-center {
+            content: "Zentivra AI Radar · Page " counter(page) " of " counter(pages);
+            font-size: 8pt;
+            color: #333;
+        }
+    }
+
+    * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+    }
+
+    body {
+        font-family: "Helvetica Neue", Arial, sans-serif;
+        color: #111;
+        font-size: 10pt;
+        line-height: 1.5;
+        word-break: break-word;
+    }
+
+    .page-break {
+        page-break-before: always;
+    }
+
+    .cover {
+        min-height: 86vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        text-align: left;
+        page-break-after: always;
+    }
+
+    .brand {
+        margin-top: 10pt;
+        font-size: 26pt;
+        letter-spacing: 0.5pt;
+        font-weight: 700;
+    }
+
+    .subtitle {
+        margin-top: 4pt;
+        font-size: 12pt;
+        color: #222;
+    }
+
+    .cover-date {
+        margin-top: 20pt;
+        font-size: 14pt;
+        font-weight: 600;
+    }
+
+    .stats-table {
+        margin-top: 14pt;
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .stats-table td {
+        border: 1pt solid #555;
+        padding: 6pt 8pt;
+        width: 33.33%;
+    }
+
+    h1 {
+        margin-top: 8pt;
+        margin-bottom: 4pt;
+        font-size: 17pt;
+        font-weight: 700;
+        border-bottom: 1.5pt solid #222;
+        padding-bottom: 4pt;
+        page-break-after: avoid;
+    }
+
+    h2 {
+        margin-top: 10pt;
+        margin-bottom: 4pt;
+        font-size: 11pt;
+        font-weight: 700;
+    }
+
+    h3 {
+        margin-bottom: 4pt;
+        font-size: 10.5pt;
+        font-weight: 700;
+    }
+
+    .section-meta {
+        margin-bottom: 8pt;
+        font-size: 9pt;
+        color: #333;
+    }
+
+    .point-list {
+        margin: 6pt 0 0 16pt;
+        padding: 0;
+    }
+
+    .point-list li {
+        margin-bottom: 3pt;
+    }
+
+    .point-list.compact li {
+        margin-bottom: 2pt;
+    }
+
+    .benchmark-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 2pt;
+        font-size: 8.8pt;
+    }
+
+    .benchmark-table th {
+        border: 1pt solid #555;
+        text-align: left;
+        padding: 5pt 6pt;
+        font-weight: 700;
+    }
+
+    .benchmark-table td {
+        border: 1pt solid #777;
+        padding: 5pt 6pt;
+        vertical-align: top;
+    }
+
+    .finding-card {
+        margin-top: 9pt;
+        border: 1pt solid #777;
+        padding: 8pt 9pt;
+        page-break-inside: avoid;
+    }
+
+    a {
+        color: #111;
+        text-decoration: underline;
+    }
+
+    .appendix-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 8.6pt;
+    }
+
+    .appendix-table th {
+        border: 1pt solid #555;
+        text-align: left;
+        padding: 5pt;
+    }
+
+    .appendix-table td {
+        border: 1pt solid #777;
+        padding: 5pt;
+        vertical-align: top;
+    }
+
+    .footer-note {
+        margin-top: 20pt;
+        font-size: 8pt;
+        text-align: center;
+        color: #333;
+    }
+</style>
+</head>
+<body>
+<div class="cover">
+    <div class="brand">ZENTIVRA AI RADAR</div>
+    <div class="subtitle">Daily Intelligence Digest</div>
+    <div class="cover-date">{{ date_formatted }}</div>
+    <table class="stats-table">
+        <tr>
+            <td><strong>Findings:</strong> {{ total_findings }}</td>
+            <td><strong>Sections:</strong> {{ sections | length }}</td>
+            <td><strong>Duplicates Removed:</strong> {{ duplicates_removed }}</td>
+        </tr>
+    </table>
+</div>
+
+<h1>Executive Summary</h1>
+{% if executive_summary_points and executive_summary_points|length > 0 %}
+<ul class="point-list">
+    {% for point in executive_summary_points %}
+    <li>{{ point }}</li>
+    {% endfor %}
+</ul>
+{% else %}
+<p>{{ executive_summary }}</p>
+{% endif %}
+
+{% for section_name, section_data in sections.items() %}
+<div class="page-break"></div>
+<h1>{{ section_name }}</h1>
+<p class="section-meta">{{ section_data.count }} finding{{ 's' if section_data.count != 1 else '' }} detected</p>
+
+{% if section_data.narrative_points and section_data.narrative_points|length > 0 %}
+<h2>Section Notes</h2>
+<ul class="point-list">
+    {% for point in section_data.narrative_points %}
+    <li>{{ point }}</li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+{% if section_data.benchmark_rows and section_data.benchmark_rows|length > 0 %}
+<h2>Benchmark Highlights</h2>
+<table class="benchmark-table">
+    <thead>
+        <tr>
+            <th>Benchmark</th>
+            <th>Source</th>
+            <th>Confidence</th>
+            <th>Impact</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for benchmark in section_data.benchmark_rows[:12] %}
+        <tr>
+            <td>{{ benchmark.title }}</td>
+            <td>{{ benchmark.publisher or benchmark.source_domain or 'Unknown' }}</td>
+            <td>{{ "%.0f"|format((benchmark.confidence or 0) * 100) }}%</td>
+            <td>{{ "%.0f"|format((benchmark.impact_score or 0) * 100) }}%</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+<h2>Findings</h2>
+{% for finding in section_data.findings[:16] %}
+<div class="finding-card">
+    <h3>{{ loop.index }}. {{ finding.title }}</h3>
+    <ul class="point-list compact">
+        <li>
+            Source: {{ finding.publisher or finding.source_domain or 'Unknown source' }}
+        </li>
+        <li>
+            Category: {{ finding.category }} | Confidence {{ "%.0f"|format((finding.confidence or 0) * 100) }}% | Impact {{ "%.0f"|format((finding.impact_score or 0) * 100) }}%
+        </li>
+
+        {% if finding.summary_points and finding.summary_points|length > 0 %}
+            {% for point in finding.summary_points[:3] %}
+        <li>{{ point }}</li>
+            {% endfor %}
+        {% elif finding.summary_short %}
+        <li>{{ finding.summary_short }}</li>
+        {% endif %}
+
+        {% if finding.why_points and finding.why_points|length > 0 %}
+            {% for point in finding.why_points[:2] %}
+        <li>Why it matters: {{ point }}</li>
+            {% endfor %}
+        {% elif finding.why_it_matters %}
+        <li>Why it matters: {{ finding.why_it_matters }}</li>
+        {% endif %}
+
+        {% if finding.source_url %}
+        <li>
+            Link: <a href="{{ finding.source_url }}">{{ finding.source_url[:95] }}{% if finding.source_url|length > 95 %}...{% endif %}</a>
+        </li>
+        {% endif %}
+    </ul>
+</div>
+{% endfor %}
+{% endfor %}
+
+{% if include_appendix %}
+<div class="page-break"></div>
+<h1>Appendix · Source Index</h1>
+<table class="appendix-table">
+    <thead>
+        <tr>
+            <th>Finding</th>
+            <th>Source</th>
+            <th>Impact</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for section_name, section_data in sections.items() %}
+        {% for finding in section_data.findings %}
+        <tr>
+            <td>{{ finding.title[:70] }}{% if finding.title|length > 70 %}...{% endif %}</td>
+            <td>
+                {% if finding.source_url %}
+                <a href="{{ finding.source_url }}">{{ finding.publisher or finding.source_domain or 'Link' }}</a>
+                {% else %}
+                {{ finding.publisher or finding.source_domain or 'Unknown' }}
+                {% endif %}
+            </td>
+            <td>{{ "%.0f"|format((finding.impact_score or 0) * 100) }}%</td>
+        </tr>
+        {% endfor %}
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+<p class="footer-note">Generated by Zentivra AI Radar · {{ generated_at }}</p>
+</body>
+</html>

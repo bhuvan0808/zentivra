@@ -16,6 +16,7 @@ class DigestResponse(BaseModel):
     email_sent: bool
     sent_at: Optional[datetime] = None
     recipients: Optional[list[str]] = None
+    sections: Optional[dict] = None
     total_findings: Optional[int] = 0
     created_at: datetime
 

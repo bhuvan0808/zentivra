@@ -74,7 +74,10 @@ export default function FindingsPage() {
   }, [page, category, minConfidence, searchQuery]);
 
   useEffect(() => {
-    fetchFindings();
+    const timeoutId = window.setTimeout(() => {
+      void fetchFindings();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [fetchFindings]);
 
   function handleSearch() {
@@ -155,6 +158,10 @@ export default function FindingsPage() {
           <div className="grid gap-4 md:grid-cols-2">
             {findings.map((finding) => {
               const isExpanded = expandedId === finding.id;
+              const tags = finding.tags ?? [];
+              const evidenceClaims = finding.evidence?.claims ?? [];
+              const companies = finding.entities?.companies ?? [];
+              const models = finding.entities?.models ?? [];
               return (
                 <Card key={finding.id} className="overflow-hidden">
                   <CardHeader className="pb-3">
@@ -176,7 +183,7 @@ export default function FindingsPage() {
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm text-muted-foreground leading-relaxed">
-                      {finding.summary_short}
+                      {finding.summary_short || "No short summary available."}
                     </p>
 
                     <div className="mt-3 flex items-center gap-2">
@@ -193,7 +200,7 @@ export default function FindingsPage() {
                     </div>
 
                     <div className="mt-3 flex flex-wrap gap-1">
-                      {finding.tags.map((tag) => (
+                      {tags.map((tag) => (
                         <Badge key={tag} variant="outline" className="text-xs">
                           {tag}
                         </Badge>
@@ -227,21 +234,21 @@ export default function FindingsPage() {
                         <Separator />
                         <div>
                           <p className="data-label mb-1">Detailed Summary</p>
-                          <p className="text-sm leading-relaxed">
-                            {finding.summary_long}
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                            {finding.summary_long || "No detailed summary available."}
                           </p>
                         </div>
                         <div>
                           <p className="data-label mb-1">Why It Matters</p>
-                          <p className="text-sm leading-relaxed">
-                            {finding.why_it_matters}
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                            {finding.why_it_matters || "No why-it-matters notes available."}
                           </p>
                         </div>
-                        {finding.evidence.claims.length > 0 && (
+                        {evidenceClaims.length > 0 && (
                           <div>
                             <p className="data-label mb-1">Evidence</p>
                             <ul className="list-disc pl-4 text-sm space-y-1">
-                              {finding.evidence.claims.map((claim, i) => (
+                              {evidenceClaims.map((claim, i) => (
                                 <li key={i}>{claim}</li>
                               ))}
                             </ul>
@@ -250,7 +257,7 @@ export default function FindingsPage() {
                         <div>
                           <p className="data-label mb-1">Entities</p>
                           <div className="flex flex-wrap gap-1">
-                            {finding.entities.companies.map((e) => (
+                            {companies.map((e) => (
                               <Badge
                                 key={e}
                                 variant="secondary"
@@ -259,7 +266,7 @@ export default function FindingsPage() {
                                 {e}
                               </Badge>
                             ))}
-                            {finding.entities.models.map((e) => (
+                            {models.map((e) => (
                               <Badge
                                 key={e}
                                 variant="secondary"
@@ -268,6 +275,11 @@ export default function FindingsPage() {
                                 {e}
                               </Badge>
                             ))}
+                            {companies.length === 0 && models.length === 0 && (
+                              <p className="text-xs text-muted-foreground">
+                                No entities extracted.
+                              </p>
+                            )}
                           </div>
                         </div>
                         <a

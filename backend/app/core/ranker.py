@@ -9,6 +9,7 @@ Scoring can be done via LLM-assisted evaluation or heuristic rules.
 
 from app.utils.logger import logger
 
+from app.config import settings
 from app.core.summarizer import Summarizer
 
 # Weights from spec section 14
@@ -60,8 +61,27 @@ class Ranker:
         If LLM is available, uses LLM-assisted scoring.
         Otherwise, falls back to heuristic scoring.
         """
-        for finding in findings:
-            if self.use_llm and self._summarizer:
+        max_llm_rankings = max(0, int(settings.max_llm_rankings_per_run))
+        llm_enabled = bool(self.use_llm and self._summarizer and max_llm_rankings > 0)
+        llm_indices: set[int] = set()
+
+        if llm_enabled and findings:
+            ranked_indices = sorted(
+                range(len(findings)),
+                key=lambda idx: float(findings[idx].get("confidence", 0) or 0),
+                reverse=True,
+            )
+            llm_indices = set(ranked_indices[:max_llm_rankings])
+            if len(findings) > len(llm_indices):
+                logger.info(
+                    "ranking_llm_cap total=%d llm_scored=%d heuristic_scored=%d",
+                    len(findings),
+                    len(llm_indices),
+                    len(findings) - len(llm_indices),
+                )
+
+        for idx, finding in enumerate(findings):
+            if llm_enabled and idx in llm_indices:
                 try:
                     scores = await self._summarizer.rank(
                         title=finding.get("title", ""),

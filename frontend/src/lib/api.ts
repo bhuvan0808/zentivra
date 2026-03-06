@@ -3,6 +3,10 @@ import type {
   SourceCreate,
   SourceUpdate,
   Run,
+  RunAgentActivity,
+  RunAgentLog,
+  RunAgentSummary,
+  RunTriggerRequest,
   TriggerRunResponse,
   Finding,
   FindingsStats,
@@ -11,6 +15,8 @@ import type {
   SchedulerStatus,
   ApiResult,
   ApiValidationItem,
+  DisruptiveArticleRequest,
+  DisruptiveArticleResponse,
   FindingsQueryParams,
   SourcesQueryParams,
 } from "./types";
@@ -118,8 +124,36 @@ export function getRun(id: string): Promise<ApiResult<Run>> {
   return request<Run>(buildUrl(`/api/runs/${id}`));
 }
 
-export function triggerRun(): Promise<ApiResult<TriggerRunResponse>> {
-  return request<TriggerRunResponse>(buildUrl("/api/runs/trigger"), { method: "POST" });
+export function triggerRun(payload?: RunTriggerRequest): Promise<ApiResult<TriggerRunResponse>> {
+  return request<TriggerRunResponse>(buildUrl("/api/runs/trigger"), {
+    method: "POST",
+    headers: payload ? { "Content-Type": "application/json" } : undefined,
+    body: payload ? JSON.stringify(payload) : undefined,
+  });
+}
+
+export function getRunAgents(runId: string): Promise<ApiResult<RunAgentSummary[]>> {
+  return request<RunAgentSummary[]>(buildUrl(`/api/runs/${runId}/agents`));
+}
+
+export function getRunAgentActivity(
+  runId: string,
+  agentType: string,
+  limit = 200
+): Promise<ApiResult<RunAgentActivity[]>> {
+  return request<RunAgentActivity[]>(
+    buildUrl(`/api/runs/${runId}/agents/${agentType}/activity`, { limit })
+  );
+}
+
+export function getRunAgentLogs(
+  runId: string,
+  agentType: string,
+  limit = 300
+): Promise<ApiResult<RunAgentLog[]>> {
+  return request<RunAgentLog[]>(
+    buildUrl(`/api/runs/${runId}/agents/${agentType}/logs`, { limit })
+  );
 }
 
 // ── Findings ──
@@ -154,4 +188,20 @@ export function getDigest(id: string): Promise<ApiResult<Digest>> {
 
 export function getDigestPdfUrl(id: string): string {
   return buildUrl(`/api/digests/${id}/pdf`);
+}
+
+// ── Workflows ──
+
+export function runDisruptiveArticle(
+  payload: DisruptiveArticleRequest
+): Promise<ApiResult<DisruptiveArticleResponse>> {
+  return request<DisruptiveArticleResponse>(buildUrl("/api/workflows/disruptive-article"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getDisruptiveReportPdfUrl(reportId: string): string {
+  return buildUrl(`/api/workflows/reports/${reportId}/pdf`);
 }

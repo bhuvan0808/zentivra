@@ -10,7 +10,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,11 +44,19 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./zentivra.db"
 
     # ── LLM Providers ────────────────────────────────────────────────────
+    llm_provider: Optional[str] = None  # Optional explicit override: openrouter/groq/gemini/openai/anthropic
     gemini_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
     groq_api_key: Optional[str] = None
     openrouter_api_key: Optional[str] = None
+
+    # LLM model overrides (per provider)
+    groq_model: str = "llama-3.3-70b-versatile"
+    openrouter_model: str = "meta-llama/llama-3.3-70b-instruct"
+    gemini_model: str = "gemini-2.0-flash-lite"
+    openai_model: str = "gpt-4o-mini"
+    anthropic_model: str = "claude-sonnet-4-20250514"
 
     # ── Email ─────────────────────────────────────────────────────────────
     sendgrid_api_key: Optional[str] = None
@@ -57,6 +64,9 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_user: Optional[str] = None
     smtp_password: Optional[str] = None
+    smtp_use_tls: bool = True
+    smtp_use_ssl: bool = False
+    smtp_timeout_seconds: int = 30
     email_from: str = "zentivra@localhost"
     email_recipients: str = ""  # Comma-separated list
 
@@ -73,6 +83,16 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     max_pages_per_domain: int = 50
     default_rate_limit_rpm: int = 10
+    enable_semantic_dedup: bool = False
+    max_urls_per_source: int = 3
+    url_processing_timeout_seconds: int = 90
+    source_processing_timeout_seconds: int = 300
+    agent_timeout_seconds: int = 1200
+    http_fetch_timeout_seconds: int = 20
+    http_fetch_max_retries: int = 2
+    llm_timeout_seconds: int = 45
+    max_llm_rankings_per_run: int = 12
+    stale_run_timeout_seconds: int = 1800
 
     @property
     def email_recipient_list(self) -> list[str]:
@@ -84,16 +104,28 @@ class Settings(BaseSettings):
     @property
     def active_llm_provider(self) -> str:
         """Determine which LLM provider is configured."""
-        if self.groq_api_key and self.groq_api_key != "your-groq-api-key-here":
-            return "groq"
-        if self.openrouter_api_key and self.openrouter_api_key != "your-openrouter-api-key-here":
-            return "openrouter"
-        if self.gemini_api_key and self.gemini_api_key != "your-gemini-api-key-here":
-            return "gemini"
-        if self.openai_api_key and self.openai_api_key != "your-openai-api-key-here":
-            return "openai"
-        if self.anthropic_api_key and self.anthropic_api_key != "your-anthropic-api-key-here":
-            return "anthropic"
+        configured = {
+            "groq": bool(self.groq_api_key and self.groq_api_key != "your-groq-api-key-here"),
+            "openrouter": bool(
+                self.openrouter_api_key
+                and self.openrouter_api_key != "your-openrouter-api-key-here"
+            ),
+            "gemini": bool(self.gemini_api_key and self.gemini_api_key != "your-gemini-api-key-here"),
+            "openai": bool(self.openai_api_key and self.openai_api_key != "your-openai-api-key-here"),
+            "anthropic": bool(
+                self.anthropic_api_key
+                and self.anthropic_api_key != "your-anthropic-api-key-here"
+            ),
+        }
+
+        if self.llm_provider:
+            requested = self.llm_provider.strip().lower()
+            if requested in configured and configured[requested]:
+                return requested
+
+        for provider in ("groq", "openrouter", "gemini", "openai", "anthropic"):
+            if configured[provider]:
+                return provider
         return "none"
 
     @property
@@ -103,7 +135,7 @@ class Settings(BaseSettings):
             self.sendgrid_api_key
             and self.sendgrid_api_key != "your-sendgrid-api-key-here"
         )
-        has_smtp = bool(self.smtp_host and self.smtp_user)
+        has_smtp = bool(self.smtp_host)
         return has_sendgrid or has_smtp
 
 

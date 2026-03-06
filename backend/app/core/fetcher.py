@@ -14,6 +14,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 from app.utils.logger import logger
 from app.config import settings
+from app.core.rate_limiter import rate_limiter
 
 # User agent for requests
 USER_AGENT = "Zentivra/1.0 (AI Research Intelligence Bot)"
@@ -107,12 +108,18 @@ class Fetcher:
 
     def __init__(
         self,
-        timeout: int = 30,
-        max_retries: int = 3,
+        timeout: Optional[int] = None,
+        max_retries: Optional[int] = None,
         respect_robots: bool = True,
     ):
-        self.timeout = timeout
-        self.max_retries = max_retries
+        configured_timeout = (
+            timeout if timeout is not None else settings.http_fetch_timeout_seconds
+        )
+        configured_retries = (
+            max_retries if max_retries is not None else settings.http_fetch_max_retries
+        )
+        self.timeout = max(1, int(configured_timeout))
+        self.max_retries = max(1, int(configured_retries))
         self.respect_robots = respect_robots
         self._robots_checker = RobotsChecker()
         self._client: Optional[httpx.AsyncClient] = None

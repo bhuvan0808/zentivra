@@ -288,7 +288,7 @@ export default function DashboardPage() {
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">Recipients</span>
-                      <span className="font-medium">{latestDigest.recipients.length}</span>
+                      <span className="font-medium">{latestDigest.recipients?.length ?? 0}</span>
                     </div>
                   </>
                 ) : (
@@ -373,8 +373,8 @@ export default function DashboardPage() {
                       {latestDigest.email_sent ? "Email sent" : "Not emailed"}
                     </span>
                     <span>
-                      {latestDigest.recipients.length} recipient
-                      {latestDigest.recipients.length !== 1 ? "s" : ""}
+                      {latestDigest.recipients?.length ?? 0} recipient
+                      {(latestDigest.recipients?.length ?? 0) !== 1 ? "s" : ""}
                     </span>
                   </div>
                 </>

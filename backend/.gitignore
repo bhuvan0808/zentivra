@@ -10,6 +10,7 @@ snapshots/
 logs/
 *.pdf
 *.html
+!app/digest/templates/*.html
 
 # Environments
 .env

@@ -10,7 +10,10 @@ import {
 } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -26,13 +29,28 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { getRuns, triggerRun, getRun } from "@/lib/api";
-import type { Run } from "@/lib/types";
+import type { AgentType, Run } from "@/lib/types";
+
+const AGENT_OPTIONS: { key: AgentType; label: string }[] = [
+  { key: "competitor", label: "Competitor" },
+  { key: "model_provider", label: "Model Provider" },
+  { key: "research", label: "Research" },
+  { key: "hf_benchmark", label: "HF Benchmark" },
+];
 
 export default function RunsPage() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(false);
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
+  const [maxSourcesPerAgent, setMaxSourcesPerAgent] = useState(3);
+  const [recipientEmails, setRecipientEmails] = useState("");
+  const [agentSelection, setAgentSelection] = useState<Record<AgentType, boolean>>({
+    competitor: true,
+    model_provider: true,
+    research: true,
+    hf_benchmark: true,
+  });
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchRuns = useCallback(async () => {
@@ -42,7 +60,10 @@ export default function RunsPage() {
   }, []);
 
   useEffect(() => {
-    fetchRuns();
+    const timeoutId = window.setTimeout(() => {
+      void fetchRuns();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [fetchRuns]);
 
   // Auto-poll when any run is active
@@ -59,8 +80,28 @@ export default function RunsPage() {
   }, [runs, fetchRuns]);
 
   async function handleTrigger() {
+    const selectedAgents = AGENT_OPTIONS.filter(
+      (agent) => agentSelection[agent.key]
+    ).map((agent) => agent.key);
+    const recipients = recipientEmails
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    if (selectedAgents.length === 0) {
+      toast.error("Select at least one agent before triggering.");
+      return;
+    }
+
     setTriggering(true);
-    const res = await triggerRun();
+    const res = await triggerRun({
+      agent_types: selectedAgents,
+      recipients: recipients.length > 0 ? recipients : undefined,
+      max_sources_per_agent:
+        Number.isFinite(maxSourcesPerAgent) && maxSourcesPerAgent > 0
+          ? maxSourcesPerAgent
+          : undefined,
+    });
     setTriggering(false);
     if (res.ok) {
       toast.success(res.data.message);
@@ -107,6 +148,57 @@ export default function RunsPage() {
           {triggering ? "Triggering..." : "Trigger Run"}
         </Button>
       </PageHeader>
+
+      <Card className="mb-4">
+        <CardContent className="space-y-3 py-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="max-sources">Max sources per agent (cost control)</Label>
+              <Input
+                id="max-sources"
+                type="number"
+                min={1}
+                max={50}
+                value={maxSourcesPerAgent}
+                onChange={(e) => setMaxSourcesPerAgent(Number(e.target.value))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="recipient-emails">
+                Recipient emails (comma-separated, optional)
+              </Label>
+              <Input
+                id="recipient-emails"
+                placeholder="lead@company.com, ops@company.com"
+                value={recipientEmails}
+                onChange={(e) => setRecipientEmails(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Agents to execute</p>
+            <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
+              {AGENT_OPTIONS.map((agent) => (
+                <div
+                  key={agent.key}
+                  className="flex items-center justify-between rounded-md border px-3 py-2"
+                >
+                  <span className="text-xs">{agent.label}</span>
+                  <Switch
+                    checked={agentSelection[agent.key]}
+                    onCheckedChange={(checked) =>
+                      setAgentSelection((prev) => ({
+                        ...prev,
+                        [agent.key]: checked,
+                      }))
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent className="p-0">

@@ -47,7 +47,13 @@ class EmailService:
 
         Returns True if sent successfully, False otherwise.
         """
-        if not recipients:
+        normalized_recipients = [
+            r.strip().lower() for r in recipients if isinstance(r, str) and r.strip()
+        ]
+        # Preserve insertion order while removing duplicates.
+        normalized_recipients = list(dict.fromkeys(normalized_recipients))
+
+        if not normalized_recipients:
             logger.warning("no_email_recipients")
             return False
 
@@ -61,17 +67,33 @@ class EmailService:
         )
 
         try:
-            if settings.sendgrid_api_key and settings.sendgrid_api_key != "your-sendgrid-api-key-here":
-                return await self._send_via_sendgrid(
-                    recipients, subject, html_body, pdf_path
+            use_sendgrid = bool(
+                settings.sendgrid_api_key
+                and settings.sendgrid_api_key != "your-sendgrid-api-key-here"
+            )
+            use_smtp = bool(settings.smtp_host)
+
+            if use_sendgrid:
+                sent = await self._send_via_sendgrid(
+                    normalized_recipients, subject, html_body, pdf_path
                 )
-            elif settings.smtp_host:
-                return await self._send_via_smtp(
-                    recipients, subject, html_body, pdf_path
-                )
-            else:
-                logger.error("no_email_provider_configured")
+                if sent:
+                    return True
+                # Fall back to SMTP when SendGrid is configured but unavailable.
+                if use_smtp:
+                    logger.warning("sendgrid_failed_falling_back_to_smtp")
+                    return await self._send_via_smtp(
+                        normalized_recipients, subject, html_body, pdf_path
+                    )
                 return False
+
+            if use_smtp:
+                return await self._send_via_smtp(
+                    normalized_recipients, subject, html_body, pdf_path
+                )
+
+            logger.error("no_email_provider_configured")
+            return False
 
         except Exception as e:
             logger.error("email_send_error error=%s", str(e))
@@ -132,7 +154,7 @@ class EmailService:
             logger.error("sendgrid_not_installed")
             return False
         except Exception as e:
-            logger.error("sendgrid_error", error=str(e))
+            logger.error("sendgrid_error error=%s", str(e))
             return False
 
     async def _send_via_smtp(
@@ -164,9 +186,25 @@ class EmailService:
                     msg.attach(pdf_attachment)
 
             # Send
-            with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
-                server.starttls()
-                server.login(settings.smtp_user, settings.smtp_password)
+            smtp_cls = smtplib.SMTP_SSL if settings.smtp_use_ssl else smtplib.SMTP
+            with smtp_cls(
+                settings.smtp_host,
+                settings.smtp_port,
+                timeout=settings.smtp_timeout_seconds,
+            ) as server:
+                if not settings.smtp_use_ssl and settings.smtp_use_tls:
+                    server.starttls()
+
+                if settings.smtp_user:
+                    smtp_password = (settings.smtp_password or "").strip()
+                    smtp_host = (settings.smtp_host or "").lower()
+                    # Gmail app passwords are often copied with spaces; normalize safely.
+                    if "gmail.com" in smtp_host and " " in smtp_password:
+                        compact = "".join(smtp_password.split())
+                        if compact:
+                            smtp_password = compact
+                    server.login(settings.smtp_user.strip(), smtp_password)
+
                 server.send_message(msg)
 
             logger.info(
@@ -177,7 +215,7 @@ class EmailService:
             return True
 
         except Exception as e:
-            logger.error("smtp_error", error=str(e))
+            logger.error("smtp_error error=%s", str(e))
             return False
 
     def _build_email_body(

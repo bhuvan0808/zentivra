@@ -49,6 +49,7 @@ class Run(Base):
     snapshots = relationship("Snapshot", back_populates="run", lazy="selectin")
     findings = relationship("Finding", back_populates="run", lazy="selectin")
     digest = relationship("Digest", back_populates="run", uselist=False, lazy="selectin")
+    agent_logs = relationship("RunAgentLog", back_populates="run", lazy="selectin")
 
     def __repr__(self) -> str:
         return f"<Run(id='{self.id[:8]}', status='{self.status}')>"

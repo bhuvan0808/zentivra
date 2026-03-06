@@ -12,6 +12,7 @@ from app.services.source_service import SourceService
 from app.services.run_service import RunService
 from app.services.finding_service import FindingService
 from app.services.digest_service import DigestService
+from app.services.workflow_service import WorkflowService
 
 
 # ── Source ──────────────────────────────────────────────
@@ -60,3 +61,9 @@ def get_digest_service(
     repo: DigestRepository = Depends(get_digest_repository),
 ) -> DigestService:
     return DigestService(repo)
+
+
+# ── Workflows ───────────────────────────────────────────
+
+def get_workflow_service() -> WorkflowService:
+    return WorkflowService()

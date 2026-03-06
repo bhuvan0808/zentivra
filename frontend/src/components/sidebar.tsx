@@ -8,6 +8,8 @@ import {
   Play,
   Search,
   FileText,
+  Bot,
+  Sparkles,
   Radar,
   Menu,
   X,
@@ -23,6 +25,8 @@ const NAV_ITEMS = [
   { href: "/runs", label: "Runs", icon: Play },
   { href: "/findings", label: "Findings", icon: Search },
   { href: "/digests", label: "Digests", icon: FileText },
+  { href: "/agents", label: "Agents", icon: Bot },
+  { href: "/oops", label: "Oops", icon: Sparkles },
 ] as const;
 
 export function Sidebar() {

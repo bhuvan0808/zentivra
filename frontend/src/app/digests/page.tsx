@@ -25,6 +25,14 @@ import {
 import { getDigests, getDigest, getDigestPdfUrl } from "@/lib/api";
 import type { Digest } from "@/lib/types";
 
+function digestSummaryPreview(summary: string | null | undefined): string {
+  if (!summary) return "No executive summary available.";
+  return summary
+    .replace(/\*\*/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export default function DigestsPage() {
   const [digests, setDigests] = useState<Digest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,7 +49,10 @@ export default function DigestsPage() {
   }, []);
 
   useEffect(() => {
-    fetchDigests();
+    const timeoutId = window.setTimeout(() => {
+      void fetchDigests();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [fetchDigests]);
 
   async function handleView(digest: Digest) {
@@ -121,15 +132,15 @@ export default function DigestsPage() {
               className="cursor-pointer transition-shadow hover:shadow-md"
               onClick={() => handleView(digest)}
             >
-              <CardContent className="flex items-center justify-between gap-4 py-5">
-                <div className="flex items-start gap-4">
+              <CardContent className="flex items-start justify-between gap-4 py-5">
+                <div className="flex min-w-0 items-start gap-4">
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
                     <Calendar className="size-5 text-muted-foreground" />
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold">{digest.date}</p>
-                    <p className="mt-0.5 truncate text-sm text-muted-foreground">
-                      {digest.executive_summary}
+                    <p className="mt-0.5 text-sm text-muted-foreground [display:-webkit-box] overflow-hidden text-ellipsis [-webkit-box-orient:vertical] [-webkit-line-clamp:2] break-words">
+                      {digestSummaryPreview(digest.executive_summary)}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <StatusBadge variant="neutral">
@@ -145,7 +156,7 @@ export default function DigestsPage() {
                           <MailX className="mr-1 size-3" />
                         )}
                         {digest.email_sent
-                          ? `Sent to ${digest.recipients.length}`
+                          ? `Sent to ${digest.recipients?.length ?? 0}`
                           : "Not sent"}
                       </StatusBadge>
                     </div>
@@ -154,6 +165,7 @@ export default function DigestsPage() {
                 <Button
                   variant="outline"
                   size="sm"
+                  className="shrink-0"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleDownloadPdf(digest.id);
@@ -173,7 +185,7 @@ export default function DigestsPage() {
         open={!!selectedDigest}
         onOpenChange={(open) => !open && setSelectedDigest(null)}
       >
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               Digest &mdash; {selectedDigest?.date}
@@ -183,9 +195,9 @@ export default function DigestsPage() {
             <div className="space-y-4">
               <div>
                 <p className="data-label mb-1">Executive Summary</p>
-                <p className="text-sm leading-relaxed">
+                <div className="max-h-[42vh] overflow-y-auto rounded-md border bg-muted/20 p-3 text-sm leading-relaxed whitespace-pre-wrap break-words">
                   {selectedDigest.executive_summary}
-                </p>
+                </div>
               </div>
 
               <Separator />
@@ -199,8 +211,8 @@ export default function DigestsPage() {
                 </div>
                 <div>
                   <p className="data-label">Run ID</p>
-                  <p className="text-sm font-mono">
-                    {selectedDigest.run_id.slice(0, 8)}
+                  <p className="text-sm font-mono break-all">
+                    {selectedDigest.run_id}
                   </p>
                 </div>
                 <div>
@@ -220,11 +232,11 @@ export default function DigestsPage() {
                 </div>
               </div>
 
-              {selectedDigest.recipients.length > 0 && (
+              {(selectedDigest.recipients?.length ?? 0) > 0 && (
                 <div>
                   <p className="data-label mb-1">Recipients</p>
                   <div className="flex flex-wrap gap-1">
-                    {selectedDigest.recipients.map((r) => (
+                    {(selectedDigest.recipients ?? []).map((r) => (
                       <span
                         key={r}
                         className="inline-flex rounded-md bg-muted px-2 py-0.5 text-xs font-mono"

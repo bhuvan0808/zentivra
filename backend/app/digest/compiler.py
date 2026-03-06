@@ -187,6 +187,15 @@ class DigestCompiler:
 
     def _infer_agent_type(self, finding: dict) -> str:
         """Infer agent type from finding tags/category."""
+        explicit_agent_type = finding.get("agent_type")
+        if explicit_agent_type in {
+            "competitor",
+            "model_provider",
+            "research",
+            "hf_benchmark",
+        }:
+            return explicit_agent_type
+
         tags = finding.get("tags", [])
         category = finding.get("category", "other")
 

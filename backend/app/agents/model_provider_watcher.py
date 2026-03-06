@@ -10,6 +10,7 @@ import re
 from app.utils.logger import logger
 
 from app.agents.base_agent import BaseAgent
+from app.models.source import Source
 
 # Keywords specific to model provider updates
 MODEL_KEYWORDS = [

@@ -5,15 +5,18 @@ Provides the common pipeline: fetch → extract → detect changes → summarize
 Each agent subclass customizes source discovery and extraction logic.
 """
 
+import asyncio
+import hashlib
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 from app.utils.logger import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.change_detector import ChangeDetector
 from app.core.extractor import Extractor
 from app.core.fetcher import Fetcher, FetchResult
@@ -39,6 +42,9 @@ class BaseAgent(ABC):
         self.extractor = Extractor()
         self.change_detector = ChangeDetector()
         self.summarizer = Summarizer()
+        self._log_callback: Optional[
+            Callable[[str, str, Optional[dict]], Awaitable[None]]
+        ] = None
 
     @property
     @abstractmethod
@@ -57,6 +63,9 @@ class BaseAgent(ABC):
         sources: list[Source],
         since: Optional[datetime] = None,
         db: Optional[AsyncSession] = None,
+        log_callback: Optional[
+            Callable[[str, str, Optional[dict]], Awaitable[None]]
+        ] = None,
     ) -> list[dict]:
         """
         Execute the agent pipeline for all assigned sources.
@@ -92,21 +101,41 @@ class BaseAgent(ABC):
             run_id[:8],
             len(sources),
         )
+        self._log_callback = log_callback
+        await self._emit_log(
+            "agent_run_start",
+            context={"run_id": run_id[:8], "sources": len(sources)},
+        )
 
         for source in sources:
             if not source.enabled:
                 continue
 
             try:
+                await self._emit_log(
+                    "source_processing_start",
+                    context={"source_name": source.name},
+                )
                 findings = await self._process_source(run_id, source, since, db)
                 all_findings.extend(findings)
                 agent_log["sources_processed"] += 1
                 agent_log["findings_created"] += len(findings)
+                if db:
+                    await db.commit()
+                await self._emit_log(
+                    "source_processing_complete",
+                    context={"source_name": source.name, "findings": len(findings)},
+                )
 
             except Exception as e:
                 error_msg = f"Error processing source '{source.name}': {e}"
                 logger.error("agent_source_error source=%s error=%s", source.name, str(e))
                 agent_log["errors"].append(error_msg)
+                await self._emit_log(
+                    "source_processing_error",
+                    level="error",
+                    context={"source_name": source.name, "error": str(e)},
+                )
 
         logger.info(
             "agent_run_complete agent=%s findings=%d sources_processed=%d urls_fetched=%d findings_created=%d errors=%s",
@@ -117,6 +146,15 @@ class BaseAgent(ABC):
             agent_log["findings_created"],
             str(agent_log["errors"]),
         )
+        await self._emit_log(
+            "agent_run_complete",
+            context={
+                "findings": len(all_findings),
+                "sources_processed": agent_log["sources_processed"],
+                "errors": len(agent_log["errors"]),
+            },
+        )
+        self._log_callback = None
 
         return all_findings
 
@@ -138,16 +176,74 @@ class BaseAgent(ABC):
             source.name,
             len(urls),
         )
+        await self._emit_log(
+            "urls_discovered",
+            context={"source_name": source.name, "count": len(urls)},
+        )
 
         if not urls:
             return findings
 
+        max_urls = max(1, int(settings.max_urls_per_source))
+        if len(urls) > max_urls:
+            urls = urls[:max_urls]
+            await self._emit_log(
+                "urls_trimmed",
+                level="warning",
+                context={"source_name": source.name, "max_urls": max_urls},
+            )
+
+        source_timeout_seconds = max(0, int(settings.source_processing_timeout_seconds))
+        url_timeout_seconds = max(1, int(settings.url_processing_timeout_seconds))
+        source_started = asyncio.get_running_loop().time()
+
         # Step 2-5: Process each URL
         for url in urls:
+            if source_timeout_seconds:
+                elapsed = asyncio.get_running_loop().time() - source_started
+                if elapsed > source_timeout_seconds:
+                    logger.warning(
+                        "source_processing_timeout agent=%s source=%s timeout=%ds",
+                        self.agent_type,
+                        source.name,
+                        source_timeout_seconds,
+                    )
+                    await self._emit_log(
+                        "source_processing_timeout",
+                        level="warning",
+                        context={
+                            "source_name": source.name,
+                            "timeout_seconds": source_timeout_seconds,
+                        },
+                    )
+                    break
+
             try:
-                finding = await self._process_url(run_id, source, url, since, db)
+                finding = await asyncio.wait_for(
+                    self._process_url(run_id, source, url, since, db),
+                    timeout=url_timeout_seconds,
+                )
                 if finding:
                     findings.append(finding)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "url_processing_timeout agent=%s source=%s url=%s timeout=%ds",
+                    self.agent_type,
+                    source.name,
+                    url,
+                    url_timeout_seconds,
+                )
+                await self._emit_log(
+                    "url_processing_timeout",
+                    level="warning",
+                    context={
+                        "source_name": source.name,
+                        "url": url,
+                        "timeout_seconds": url_timeout_seconds,
+                    },
+                )
+                if db:
+                    await db.rollback()
             except Exception as e:
                 logger.error(
                     "url_processing_error url=%s source=%s error=%s",
@@ -155,6 +251,8 @@ class BaseAgent(ABC):
                     source.name,
                     str(e),
                 )
+                if db:
+                    await db.rollback()
 
         return findings
 
@@ -169,6 +267,7 @@ class BaseAgent(ABC):
         """Process a single URL through the pipeline."""
 
         # Step 2: Fetch
+        await self._emit_log("url_fetch_start", context={"url": url, "source": source.name})
         fetch_result = await self.fetcher.fetch(
             url,
             rate_limit_rpm=source.rate_limit_rpm,
@@ -176,7 +275,18 @@ class BaseAgent(ABC):
 
         if not fetch_result.success:
             logger.warning("fetch_failed url=%s error=%s", url, fetch_result.error)
+            await self._emit_log(
+                "url_fetch_failed",
+                level="warning",
+                context={"url": url, "error": fetch_result.error},
+            )
+            if db:
+                await self._save_failed_snapshot(run_id, source.id, url, fetch_result, db)
             return None
+        await self._emit_log(
+            "url_fetch_complete",
+            context={"url": url, "status_code": fetch_result.status_code},
+        )
 
         # Step 3: Extract text + metadata
         extraction = self.extractor.extract_html(
@@ -187,6 +297,13 @@ class BaseAgent(ABC):
 
         if not extraction.success or not extraction.text:
             logger.warning("extraction_failed url=%s error=%s", url, extraction.error)
+            await self._emit_log(
+                "url_extraction_failed",
+                level="warning",
+                context={"url": url, "error": extraction.error},
+            )
+            if db:
+                await self._save_failed_snapshot(run_id, source.id, url, fetch_result, db)
             return None
 
         # Step 4: Detect changes
@@ -199,6 +316,7 @@ class BaseAgent(ABC):
         # Skip if content hasn't significantly changed
         if not self.change_detector.is_significant_change(change):
             logger.debug("no_significant_change url=%s", url)
+            await self._emit_log("url_no_significant_change", context={"url": url})
             # Still save snapshot for tracking
             if db:
                 await self._save_snapshot(
@@ -217,6 +335,13 @@ class BaseAgent(ABC):
 
         if not summary.success:
             logger.warning("summarization_failed url=%s error=%s", url, summary.error)
+            await self._emit_log(
+                "url_summarization_failed",
+                level="warning",
+                context={"url": url, "error": summary.error},
+            )
+            if db:
+                await self._save_failed_snapshot(run_id, source.id, url, fetch_result, db)
             return None
 
         # Step 6: Store in database
@@ -231,6 +356,7 @@ class BaseAgent(ABC):
             "id": str(uuid.uuid4()),
             "run_id": run_id,
             "source_id": source.id,
+            "agent_type": self.agent_type,
             "title": summary.title or extraction.title or "Untitled",
             "date_detected": datetime.now(timezone.utc).isoformat(),
             "source_url": url,
@@ -257,6 +383,14 @@ class BaseAgent(ABC):
             finding["title"][:60],
             finding["confidence"],
             finding["category"],
+        )
+        await self._emit_log(
+            "finding_created",
+            context={
+                "url": url,
+                "title": finding["title"],
+                "confidence": finding["confidence"],
+            },
         )
 
         return finding
@@ -289,8 +423,8 @@ class BaseAgent(ABC):
 
         entries = self.extractor.extract_feed(result.content, feed_url)
 
-        # Return up to 10 most recent entry URLs
-        return [e.link for e in entries[:10] if e.link]
+        max_urls = max(1, int(settings.max_urls_per_source))
+        return [e.link for e in entries[:max_urls] if e.link]
 
     async def post_process_finding(
         self, finding: dict, extraction, source: Source
@@ -362,10 +496,62 @@ class BaseAgent(ABC):
             )
             db.add(ext)
             await db.flush()
+            await db.commit()
 
         except Exception as e:
             logger.error("save_snapshot_error url=%s error=%s", url, str(e))
+            await db.rollback()
+
+    async def _save_failed_snapshot(
+        self,
+        run_id: str,
+        source_id: str,
+        url: str,
+        fetch_result: FetchResult,
+        db: AsyncSession,
+    ):
+        """Persist a snapshot even when extraction/summarization fails."""
+        try:
+            content = fetch_result.content or ""
+            content_hash = (
+                fetch_result.content_hash
+                if fetch_result.content_hash
+                else hashlib.sha256(content.encode("utf-8")).hexdigest()
+            )
+            snapshot = Snapshot(
+                source_id=source_id,
+                run_id=run_id,
+                url=url,
+                content_hash=content_hash,
+                raw_content=content[:50000] if content else None,
+                http_status=fetch_result.status_code or 0,
+                content_changed=None,
+            )
+            db.add(snapshot)
+            await db.flush()
+            await db.commit()
+        except Exception as e:
+            logger.error("save_failed_snapshot_error url=%s error=%s", url, str(e))
+            await db.rollback()
 
     async def close(self):
         """Cleanup resources."""
         await self.fetcher.close()
+
+    async def _emit_log(
+        self,
+        message: str,
+        level: str = "info",
+        context: Optional[dict] = None,
+    ) -> None:
+        """Send a structured log event to the orchestrator callback if configured."""
+        if not self._log_callback:
+            return
+        try:
+            await self._log_callback(level, message, context)
+        except Exception as e:
+            logger.debug(
+                "agent_log_callback_failed agent=%s error=%s",
+                self.agent_type,
+                str(e),
+            )
