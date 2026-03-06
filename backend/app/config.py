@@ -78,6 +78,9 @@ class Settings(BaseSettings):
     digest_time: str = "06:00"
     timezone: str = "Asia/Kolkata"
 
+    # ── CORS ──────────────────────────────────────────────────────────────
+    allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+
     # ── App Settings ──────────────────────────────────────────────────────
     app_env: AppEnv = AppEnv.DEVELOPMENT
     log_level: str = "INFO"
@@ -93,6 +96,11 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = 45
     max_llm_rankings_per_run: int = 12
     stale_run_timeout_seconds: int = 1800
+
+    @property
+    def allowed_origin_list(self) -> list[str]:
+        """Parse comma-separated allowed origins into a list."""
+        return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
 
     @property
     def email_recipient_list(self) -> list[str]:
