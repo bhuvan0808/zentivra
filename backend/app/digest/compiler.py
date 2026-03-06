@@ -25,8 +25,6 @@ from app.models.digest import Digest
 from app.models.finding import Finding
 from app.models.run import Run
 
-from app.utils.logger import logger
-
 # Section ordering for the digest
 SECTION_ORDER = [
     ("Competitor Releases", "competitor"),
@@ -57,10 +55,21 @@ class DigestCompiler:
         digest = await compiler.compile(run_id, findings, db)
     """
 
-    def __init__(self):
-        self.dedup_engine = DedupEngine()
-        self.ranker = Ranker(use_llm=True)
-        self.summarizer = Summarizer()
+    def __init__(
+        self,
+        similarity_threshold: float = 0.85,
+        llm_provider: Optional[str] = None,
+        llm_model: Optional[str] = None,
+        ranking_weights: Optional[dict] = None,
+    ):
+        self.dedup_engine = DedupEngine(similarity_threshold=similarity_threshold)
+        self.ranker = Ranker(
+            use_llm=True,
+            llm_provider=llm_provider,
+            llm_model=llm_model,
+            weights=ranking_weights,
+        )
+        self.summarizer = Summarizer(provider=llm_provider, model=llm_model)
 
     async def compile(
         self,
@@ -77,7 +86,9 @@ class DigestCompiler:
         - total_findings
         -         pdf_path (after rendering)
         """
-        logger.info("digest_compile_start run_id=%s findings=%d", run_id[:8], len(findings))
+        logger.info(
+            "digest_compile_start run_id=%s findings=%d", run_id[:8], len(findings)
+        )
 
         if not findings:
             return self._empty_digest(run_id)
@@ -104,7 +115,9 @@ class DigestCompiler:
                 section_name: section_data["findings"]
                 for section_name, section_data in sections.items()
             }
-            narratives = await self.summarizer.generate_narrative(findings_for_narrative)
+            narratives = await self.summarizer.generate_narrative(
+                findings_for_narrative
+            )
         except Exception as e:
             logger.error("narrative_generation_error error=%s", str(e))
             for section_name in sections:
@@ -205,7 +218,9 @@ class DigestCompiler:
             return "hf_benchmark"
         if category in ("models", "apis", "pricing"):
             # Check if it's a competitor or model provider
-            if any(t in tags for t in ["model_release", "api_update", "pricing_change"]):
+            if any(
+                t in tags for t in ["model_release", "api_update", "pricing_change"]
+            ):
                 return "model_provider"
             return "competitor"
         if category == "benchmarks":
@@ -231,14 +246,14 @@ class DigestCompiler:
 
         return "\n".join(lines)
 
-    def _fallback_executive_summary(
-        self, findings: list[dict], sections: dict
-    ) -> str:
+    def _fallback_executive_summary(self, findings: list[dict], sections: dict) -> str:
         """Generate a basic executive summary when LLM is unavailable."""
         total = len(findings)
         section_counts = {name: data["count"] for name, data in sections.items()}
 
-        summary_parts = [f"Today's AI Radar detected **{total} findings** across the AI landscape.\n"]
+        summary_parts = [
+            f"Today's AI Radar detected **{total} findings** across the AI landscape.\n"
+        ]
 
         for name, count in section_counts.items():
             summary_parts.append(f"- **{name}**: {count} updates")

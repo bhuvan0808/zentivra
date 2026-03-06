@@ -12,12 +12,16 @@ from typing import Optional
 from app.utils.logger import logger
 from app.config import settings
 
+
 @dataclass
 class DedupResult:
     """Result of deduplication for a set of findings."""
+
     unique_findings: list[dict] = field(default_factory=list)
     duplicate_ids: list[str] = field(default_factory=list)
-    clusters: dict[str, list[str]] = field(default_factory=dict)  # cluster_id -> finding_ids
+    clusters: dict[str, list[str]] = field(
+        default_factory=dict
+    )  # cluster_id -> finding_ids
     total_input: int = 0
     total_unique: int = 0
     total_duplicates: int = 0
@@ -54,6 +58,7 @@ class DedupEngine:
         if self._model is None:
             try:
                 from sentence_transformers import SentenceTransformer
+
                 self._model = SentenceTransformer("all-MiniLM-L6-v2")
                 logger.info("embedding_model_loaded model=all-MiniLM-L6-v2")
             except ImportError:
@@ -137,15 +142,12 @@ class DedupEngine:
 
         return result
 
-    def _semantic_dedup(
-        self, findings: list[dict], model
-    ) -> set[str]:
+    def _semantic_dedup(self, findings: list[dict], model) -> set[str]:
         """Use embeddings to find semantically similar findings."""
         import numpy as np
 
         texts = [
-            f"{f.get('title', '')}. {f.get('summary_short', '')}"
-            for f in findings
+            f"{f.get('title', '')}. {f.get('summary_short', '')}" for f in findings
         ]
 
         try:
@@ -153,6 +155,7 @@ class DedupEngine:
 
             # Compute cosine similarity matrix
             from sklearn.metrics.pairwise import cosine_similarity
+
             sim_matrix = cosine_similarity(embeddings)
 
             duplicate_ids = set()
@@ -176,7 +179,11 @@ class DedupEngine:
                         logger.debug(
                             "semantic_duplicate similarity=%.3f kept=%s",
                             float(sim_matrix[i][j]),
-                            findings[i]["id"] if conf_i >= conf_j else findings[j]["id"],
+                            (
+                                findings[i]["id"]
+                                if conf_i >= conf_j
+                                else findings[j]["id"]
+                            ),
                         )
 
             return duplicate_ids

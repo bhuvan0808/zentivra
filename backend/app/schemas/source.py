@@ -22,11 +22,13 @@ class SourceBase(BaseModel):
 
 class SourceCreate(SourceBase):
     """Schema for creating a new source."""
+
     pass
 
 
 class SourceUpdate(BaseModel):
     """Schema for updating a source (all fields optional)."""
+
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     url: Optional[str] = None
     feed_url: Optional[str] = None
@@ -39,6 +41,7 @@ class SourceUpdate(BaseModel):
 
 class SourceResponse(SourceBase):
     """Schema for source API responses."""
+
     id: str
     created_at: datetime
     updated_at: datetime

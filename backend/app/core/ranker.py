@@ -7,16 +7,18 @@ Uses the spec-defined formula:
 Scoring can be done via LLM-assisted evaluation or heuristic rules.
 """
 
+from typing import Optional
+
 from app.utils.logger import logger
 
 from app.config import settings
 from app.core.summarizer import Summarizer
 
-# Weights from spec section 14
-RELEVANCE_WEIGHT = 0.35
-NOVELTY_WEIGHT = 0.25
-CREDIBILITY_WEIGHT = 0.20
-ACTIONABILITY_WEIGHT = 0.20
+# Default weights from spec section 14
+DEFAULT_RELEVANCE_WEIGHT = 0.35
+DEFAULT_NOVELTY_WEIGHT = 0.25
+DEFAULT_CREDIBILITY_WEIGHT = 0.20
+DEFAULT_ACTIONABILITY_WEIGHT = 0.20
 
 
 class Ranker:
@@ -28,9 +30,22 @@ class Ranker:
         scored = await ranker.rank_findings(findings)
     """
 
-    def __init__(self, use_llm: bool = True):
+    def __init__(
+        self,
+        use_llm: bool = True,
+        llm_provider: Optional[str] = None,
+        llm_model: Optional[str] = None,
+        weights: Optional[dict] = None,
+    ):
         self.use_llm = use_llm
-        self._summarizer = Summarizer() if use_llm else None
+        self._summarizer = (
+            Summarizer(provider=llm_provider, model=llm_model) if use_llm else None
+        )
+        w = weights or {}
+        self.relevance_weight = w.get("relevance", DEFAULT_RELEVANCE_WEIGHT)
+        self.novelty_weight = w.get("novelty", DEFAULT_NOVELTY_WEIGHT)
+        self.credibility_weight = w.get("credibility", DEFAULT_CREDIBILITY_WEIGHT)
+        self.actionability_weight = w.get("actionability", DEFAULT_ACTIONABILITY_WEIGHT)
 
     def compute_impact_score(
         self,
@@ -46,10 +61,10 @@ class Ranker:
         Returns score on 0-1 scale.
         """
         score = (
-            RELEVANCE_WEIGHT * relevance
-            + NOVELTY_WEIGHT * novelty
-            + CREDIBILITY_WEIGHT * credibility
-            + ACTIONABILITY_WEIGHT * actionability
+            self.relevance_weight * relevance
+            + self.novelty_weight * novelty
+            + self.credibility_weight * credibility
+            + self.actionability_weight * actionability
         ) / 10.0
 
         return round(min(max(score, 0.0), 1.0), 3)
@@ -92,7 +107,9 @@ class Ranker:
                     finding["relevance_score"] = scores.get("relevance", 5) / 10.0
                     finding["novelty_score"] = scores.get("novelty", 5) / 10.0
                     finding["credibility_score"] = scores.get("credibility", 5) / 10.0
-                    finding["actionability_score"] = scores.get("actionability", 5) / 10.0
+                    finding["actionability_score"] = (
+                        scores.get("actionability", 5) / 10.0
+                    )
                     finding["impact_score"] = scores.get("impact_score", 0.5)
 
                 except Exception as e:

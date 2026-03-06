@@ -23,6 +23,7 @@ USER_AGENT = "Zentivra/1.0 (AI Research Intelligence Bot)"
 @dataclass
 class FetchResult:
     """Result of fetching a URL."""
+
     url: str
     status_code: int
     content: str = ""
@@ -70,6 +71,7 @@ class RobotsChecker:
         # Simple robots.txt parsing — check for Disallow rules
         try:
             from robotexclusionrulesparser import RobotExclusionRulesParser
+
             parser = RobotExclusionRulesParser()
             parser.parse(robots_txt)
             return parser.is_allowed(USER_AGENT, url)
@@ -179,7 +181,9 @@ class Fetcher:
             and result.success
             and self._seems_js_rendered(result.content)
         ):
-            logger.info("playwright_fallback url=%s reason=content seems JS-rendered", url)
+            logger.info(
+                "playwright_fallback url=%s reason=content seems JS-rendered", url
+            )
             pw_result = await self._fetch_with_playwright(url)
             if pw_result.success and len(pw_result.content) > len(result.content):
                 return pw_result
@@ -205,7 +209,10 @@ class Fetcher:
                         response.status_code,
                         attempt + 1,
                     )
-                    if response.status_code in (429, 503) and attempt < self.max_retries - 1:
+                    if (
+                        response.status_code in (429, 503)
+                        and attempt < self.max_retries - 1
+                    ):
                         wait = 2 ** (attempt + 1)
                         await asyncio.sleep(wait)
                         continue
@@ -236,10 +243,14 @@ class Fetcher:
                 logger.warning("fetch_timeout url=%s attempt=%d", url, attempt + 1)
             except httpx.ConnectError as e:
                 last_error = f"Connection error: {e}"
-                logger.warning("fetch_connect_error url=%s attempt=%d", url, attempt + 1)
+                logger.warning(
+                    "fetch_connect_error url=%s attempt=%d", url, attempt + 1
+                )
             except Exception as e:
                 last_error = str(e)
-                logger.error("fetch_error url=%s error=%s attempt=%d", url, str(e), attempt + 1)
+                logger.error(
+                    "fetch_error url=%s error=%s attempt=%d", url, str(e), attempt + 1
+                )
 
             if attempt < self.max_retries - 1:
                 await asyncio.sleep(2 ** (attempt + 1))
@@ -261,7 +272,9 @@ class Fetcher:
                 page = await browser.new_page(
                     user_agent=USER_AGENT,
                 )
-                await page.goto(url, wait_until="networkidle", timeout=self.timeout * 1000)
+                await page.goto(
+                    url, wait_until="networkidle", timeout=self.timeout * 1000
+                )
                 content = await page.content()
                 await browser.close()
 
@@ -289,6 +302,7 @@ class Fetcher:
             return True
         # Strip HTML tags and check text length
         import re
+
         text = re.sub(r"<[^>]+>", "", content)
         text = text.strip()
         # If the text content is very short relative to HTML, it's likely JS-rendered
@@ -296,10 +310,10 @@ class Fetcher:
             return True
         # Check for common SPA indicators
         spa_indicators = [
-            "id=\"__next\"",     # Next.js
-            "id=\"root\"",      # React
-            "id=\"app\"",       # Vue
-            "ng-app",           # Angular
+            'id="__next"',  # Next.js
+            'id="root"',  # React
+            'id="app"',  # Vue
+            "ng-app",  # Angular
             "noscript",
         ]
         text_ratio = len(text) / max(len(content), 1)
@@ -329,12 +343,14 @@ class Fetcher:
         final = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                final.append(FetchResult(
-                    url=urls[i],
-                    status_code=0,
-                    error=str(result),
-                    success=False,
-                ))
+                final.append(
+                    FetchResult(
+                        url=urls[i],
+                        status_code=0,
+                        error=str(result),
+                        success=False,
+                    )
+                )
             else:
                 final.append(result)
 

@@ -14,8 +14,6 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.config import settings
 
-from app.utils.logger import logger
-
 # Global scheduler instance
 _scheduler: AsyncIOScheduler | None = None
 
@@ -30,7 +28,9 @@ async def scheduled_run():
     from app.models.run import Run
     from app.scheduler.orchestrator import Orchestrator
 
-    logger.info("scheduled_run_triggered time=%s", datetime.now(timezone.utc).isoformat())
+    logger.info(
+        "scheduled_run_triggered time=%s", datetime.now(timezone.utc).isoformat()
+    )
 
     async with async_session() as db:
         run = Run(triggered_by="scheduler")
@@ -63,9 +63,7 @@ async def manual_trigger() -> str:
         run_id = run.id
 
     # Run in background
-    asyncio.create_task(
-        _execute_in_background(run_id)
-    )
+    asyncio.create_task(_execute_in_background(run_id))
 
     return run_id
 

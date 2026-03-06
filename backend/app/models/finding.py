@@ -48,7 +48,9 @@ class Finding(Base):
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     publisher: Mapped[str] = mapped_column(String(255), nullable=True)
     category: Mapped[str] = mapped_column(
-        Enum(FindingCategory, native_enum=False), default=FindingCategory.OTHER, index=True
+        Enum(FindingCategory, native_enum=False),
+        default=FindingCategory.OTHER,
+        index=True,
     )
 
     # Summaries

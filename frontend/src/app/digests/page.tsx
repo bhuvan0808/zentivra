@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { getDigests, getDigest, getDigestPdfUrl } from "@/lib/api";
+import { motion } from "framer-motion";
 import type { Digest } from "@/lib/types";
 
 function digestSummaryPreview(summary: string | null | undefined): string {
@@ -91,7 +92,7 @@ export default function DigestsPage() {
   if (loading) {
     return (
       <div>
-        <PageHeader title="Digests" />
+        <PageHeader title="Digests" description="Archive of daily executive digests." />
         <div className="space-y-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <Card key={i}>
@@ -126,9 +127,14 @@ export default function DigestsPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {digests.map((digest) => (
-            <Card
+          {digests.map((digest, i) => (
+            <motion.div
               key={digest.id}
+              initial={{ opacity: 0, filter: "blur(4px)" }}
+              animate={{ opacity: 1, filter: "blur(0px)" }}
+              transition={{ duration: 0.35, delay: i * 0.05, ease: "easeOut" }}
+            >
+            <Card
               className="cursor-pointer transition-shadow hover:shadow-md"
               onClick={() => handleView(digest)}
             >
@@ -176,6 +182,7 @@ export default function DigestsPage() {
                 </Button>
               </CardContent>
             </Card>
+            </motion.div>
           ))}
         </div>
       )}

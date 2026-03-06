@@ -40,13 +40,15 @@ async def test_step_by_step():
     from app.core.fetcher import Fetcher
 
     fetcher = Fetcher()
-    t0 = time.time(), 
+    t0 = (time.time(),)
 
     # Fetch OpenAI blog (a real competitor source)
     test_url = "https://openai.com/index/introducing-4o-image-generation/"
     print(f"  Fetching: {test_url}")
-    result = await fetcher.fetch(test_url, rate_limit_rpm=30, use_playwright_fallback=False)
-    
+    result = await fetcher.fetch(
+        test_url, rate_limit_rpm=30, use_playwright_fallback=False
+    )
+
     print(f"  Status: {result.status_code}")
     print(f"  Content length: {len(result.content)} chars")
     print(f"  Content hash: {result.content_hash[:16]}...")
@@ -73,7 +75,7 @@ async def test_step_by_step():
         </article></body></html>
         """
         result.success = True
-    
+
     assert result.content, "Should have content"
     print("  ✅ Fetch successful!")
 
@@ -190,12 +192,15 @@ async def test_step_by_step():
     print("\n─── Step 7: DIGEST COMPILATION ────────────────────────────")
     # Use the ranked unique finding
     findings_for_digest = [ranked[0]]
-    
+
     # Add agent type tag for section routing
-    findings_for_digest[0]["tags"] = findings_for_digest[0].get("tags", []) + ["competitor"]
+    findings_for_digest[0]["tags"] = findings_for_digest[0].get("tags", []) + [
+        "competitor"
+    ]
     findings_for_digest[0]["diff_hash"] = change.current_hash
-    
+
     from app.digest.compiler import DigestCompiler
+
     compiler = DigestCompiler()
 
     # Compile without DB (standalone test)
@@ -217,8 +222,9 @@ async def test_step_by_step():
     renderer = PDFRenderer()
     output_path = renderer.render(digest_data)
     print(f"  Output: {output_path}")
-    
+
     from pathlib import Path
+
     output_file = Path(output_path)
     assert output_file.exists(), "Output file should exist"
     size_kb = output_file.stat().st_size / 1024

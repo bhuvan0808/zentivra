@@ -20,18 +20,21 @@ class TestSummarizerGuardrails:
 
     def setup_method(self):
         from app.core.summarizer import Summarizer
+
         self.summarizer = Summarizer()
 
     def test_parse_clean_json(self):
         """Should parse valid JSON response."""
-        response = json.dumps({
-            "title": "Test Finding",
-            "summary_short": "A test summary",
-            "confidence": 0.8,
-            "category": "models",
-            "tags": ["test"],
-            "entities": {"companies": ["OpenAI"]},
-        })
+        response = json.dumps(
+            {
+                "title": "Test Finding",
+                "summary_short": "A test summary",
+                "confidence": 0.8,
+                "category": "models",
+                "tags": ["test"],
+                "entities": {"companies": ["OpenAI"]},
+            }
+        )
         result = self.summarizer._parse_json_response(response)
         assert result["title"] == "Test Finding"
         assert result["confidence"] == 0.8
@@ -56,6 +59,7 @@ class TestSummarizerGuardrails:
     def test_summary_result_defaults(self):
         """SummaryResult should have safe defaults."""
         from app.core.summarizer import SummaryResult
+
         result = SummaryResult()
         assert result.confidence == 0.5
         assert result.category == "other"
@@ -73,6 +77,7 @@ class TestSummarizerGuardrails:
     def test_short_content_rejection(self):
         """Content < 50 chars should be rejected."""
         import asyncio
+
         result = asyncio.run(self.summarizer.summarize("Too short"))
         assert result.success is False
         assert result.confidence == 0.0
@@ -83,6 +88,7 @@ class TestAgentTypeInference:
 
     def setup_method(self):
         from app.digest.compiler import DigestCompiler
+
         self.compiler = DigestCompiler()
 
     def test_research_inference(self):
@@ -118,17 +124,21 @@ class TestEmailService:
         """Should return False with no recipients."""
         import asyncio
         from app.notifications.email_service import EmailService
+
         service = EmailService()
-        result = asyncio.run(service.send_digest_email(
-            recipients=[],
-            subject="Test",
-            executive_summary="Test",
-        ))
+        result = asyncio.run(
+            service.send_digest_email(
+                recipients=[],
+                subject="Test",
+                executive_summary="Test",
+            )
+        )
         assert result is False
 
     def test_email_body_generation(self):
         """Should generate valid HTML email body."""
         from app.notifications.email_service import EmailService
+
         service = EmailService()
         body = service._build_email_body(
             executive_summary="Today's key AI developments include a model launch.",
@@ -146,17 +156,20 @@ class TestScheduler:
     def test_scheduler_status_when_not_running(self):
         """Should report not running when scheduler hasn't started."""
         from app.scheduler.scheduler import get_scheduler_status
+
         status = get_scheduler_status()
         assert status["running"] is False
 
     def test_manual_trigger_import(self):
         """Manual trigger function should be importable."""
         from app.scheduler.scheduler import manual_trigger
+
         assert callable(manual_trigger)
 
     def test_orchestrator_imports(self):
         """Orchestrator should import and instantiate."""
         from app.scheduler.orchestrator import Orchestrator
+
         orc = Orchestrator()
         assert orc.digest_compiler is not None
         assert orc.pdf_renderer is not None
@@ -169,16 +182,21 @@ class TestConfigValidation:
     def test_placeholder_keys_not_detected(self):
         """Placeholder API keys should NOT activate providers."""
         from app.config import Settings
+
         s = Settings(
             gemini_api_key="your-gemini-api-key-here",
             openai_api_key="your-openai-api-key-here",
         )
-        assert s.active_llm_provider in ("groq", "openrouter", "none") or \
-               s.active_llm_provider not in ("gemini", "openai")
+        assert s.active_llm_provider in (
+            "groq",
+            "openrouter",
+            "none",
+        ) or s.active_llm_provider not in ("gemini", "openai")
 
     def test_digest_dir_exists(self):
         """Data directories should exist."""
         from app.config import DIGESTS_DIR, SNAPSHOTS_DIR
+
         assert DIGESTS_DIR.exists()
         assert SNAPSHOTS_DIR.exists()
 

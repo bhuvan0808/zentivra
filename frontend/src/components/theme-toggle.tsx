@@ -3,7 +3,6 @@
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
@@ -24,15 +23,18 @@ export function ThemeToggle() {
     <div className="fixed bottom-5 right-5 z-50">
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button
-            variant="outline"
-            size="icon"
+          <button
             onClick={() => setTheme(isDark ? "light" : "dark")}
-            className="size-10 rounded-full shadow-lg"
+            className="group relative flex size-11 items-center justify-center rounded-full border border-white/20 bg-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.12)] backdrop-blur-xl backdrop-saturate-150 transition-all duration-300 hover:scale-105 hover:border-white/30 hover:bg-white/15 hover:shadow-[0_8px_32px_rgba(0,0,0,0.2)] active:scale-95 dark:border-white/10 dark:bg-white/5 dark:shadow-[0_8px_32px_rgba(0,0,0,0.4)] dark:hover:border-white/20 dark:hover:bg-white/10"
           >
-            {isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+            <div className="absolute inset-0 rounded-full bg-gradient-to-br from-white/20 to-transparent opacity-60" />
+            {isDark ? (
+              <Sun className="relative size-4 text-amber-300 drop-shadow-[0_0_6px_rgba(251,191,36,0.4)] transition-transform duration-300 group-hover:rotate-45" />
+            ) : (
+              <Moon className="relative size-4 text-slate-700 drop-shadow-[0_0_4px_rgba(0,0,0,0.1)] transition-transform duration-300 group-hover:-rotate-12" />
+            )}
             <span className="sr-only">Toggle theme</span>
-          </Button>
+          </button>
         </TooltipTrigger>
         <TooltipContent side="left">
           Switch to {isDark ? "light" : "dark"} mode

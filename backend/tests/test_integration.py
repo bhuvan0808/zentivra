@@ -68,15 +68,36 @@ class TestPipelineIntegration:
         from app.core.ranker import Ranker
 
         findings = [
-            {"id": "1", "title": "Major Release", "summary_short": "Big news",
-             "diff_hash": "hash_a", "category": "models", "confidence": 0.9,
-             "tags": [], "entities": {}},
-            {"id": "2", "title": "Minor Update", "summary_short": "Small change",
-             "diff_hash": "hash_b", "category": "other", "confidence": 0.3,
-             "tags": [], "entities": {}},
-            {"id": "3", "title": "Major Release", "summary_short": "Big news",
-             "diff_hash": "hash_a", "category": "models", "confidence": 0.9,
-             "tags": [], "entities": {}},
+            {
+                "id": "1",
+                "title": "Major Release",
+                "summary_short": "Big news",
+                "diff_hash": "hash_a",
+                "category": "models",
+                "confidence": 0.9,
+                "tags": [],
+                "entities": {},
+            },
+            {
+                "id": "2",
+                "title": "Minor Update",
+                "summary_short": "Small change",
+                "diff_hash": "hash_b",
+                "category": "other",
+                "confidence": 0.3,
+                "tags": [],
+                "entities": {},
+            },
+            {
+                "id": "3",
+                "title": "Major Release",
+                "summary_short": "Big news",
+                "diff_hash": "hash_a",
+                "category": "models",
+                "confidence": 0.9,
+                "tags": [],
+                "entities": {},
+            },
         ]
 
         # Dedup
@@ -98,14 +119,22 @@ class TestPipelineIntegration:
         from app.digest.pdf_renderer import PDFRenderer
 
         findings = [
-            {"id": "1", "run_id": "test", "source_id": "src1",
-             "title": "GPT-5 Released", "summary_short": "Major model update",
-             "summary_long": "Detailed description of GPT-5.",
-             "why_it_matters": "Significant impact on industry.",
-             "category": "models", "confidence": 0.9,
-             "tags": ["model_release"], "entities": {"companies": ["OpenAI"]},
-             "source_url": "https://openai.com", "publisher": "OpenAI",
-             "diff_hash": "hash_1"},
+            {
+                "id": "1",
+                "run_id": "test",
+                "source_id": "src1",
+                "title": "GPT-5 Released",
+                "summary_short": "Major model update",
+                "summary_long": "Detailed description of GPT-5.",
+                "why_it_matters": "Significant impact on industry.",
+                "category": "models",
+                "confidence": 0.9,
+                "tags": ["model_release"],
+                "entities": {"companies": ["OpenAI"]},
+                "source_url": "https://openai.com",
+                "publisher": "OpenAI",
+                "diff_hash": "hash_1",
+            },
         ]
 
         compiler = DigestCompiler()
@@ -127,6 +156,7 @@ class TestDatabaseModels:
     def test_source_model_creation(self):
         """Source model should be importable and instantiable."""
         from app.models.source import Source, AgentType
+
         source = Source(
             agent_type=AgentType.COMPETITOR,
             name="Test Source",
@@ -140,6 +170,7 @@ class TestDatabaseModels:
     def test_finding_model_creation(self):
         """Finding model should handle all fields."""
         from app.models.finding import Finding
+
         finding = Finding(
             run_id="test-run",
             source_id="test-source",
@@ -154,6 +185,7 @@ class TestDatabaseModels:
     def test_run_model_creation(self):
         """Run model should have correct defaults."""
         from app.models.run import Run, RunStatus
+
         run = Run(triggered_by="manual", status=RunStatus.PENDING)
         assert run.triggered_by == "manual"
         assert run.status == RunStatus.PENDING
@@ -162,6 +194,7 @@ class TestDatabaseModels:
         """Digest model should be instantiable."""
         from app.models.digest import Digest
         from datetime import date
+
         digest = Digest(
             run_id="test-run",
             date=date.today(),
@@ -177,6 +210,7 @@ class TestAPISchemas:
     def test_source_schema(self):
         """Source response schema should validate."""
         from app.schemas.source import SourceResponse
+
         # Test that schema fields exist
         assert "id" in SourceResponse.model_fields
         assert "name" in SourceResponse.model_fields
@@ -185,12 +219,14 @@ class TestAPISchemas:
     def test_run_schema(self):
         """Run response schema should validate."""
         from app.schemas.run import RunResponse
+
         assert "id" in RunResponse.model_fields
         assert "status" in RunResponse.model_fields
 
     def test_finding_schema(self):
         """Finding response schema should validate."""
         from app.schemas.finding import FindingResponse
+
         assert "id" in FindingResponse.model_fields
         assert "title" in FindingResponse.model_fields
         assert "impact_score" in FindingResponse.model_fields
