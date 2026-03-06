@@ -93,6 +93,23 @@ class Orchestrator:
                     max_sources_per_agent=max_sources_per_agent,
                 )
 
+                # ── Zero-findings fast-path ──
+                # If no new content was detected, reuse the latest existing
+                # digest PDF instead of generating an empty one.  This saves
+                # LLM costs and still delivers useful intel to the recipient.
+                if not all_findings:
+                    reused = await self._try_reuse_latest_digest(
+                        run_id=run_id,
+                        db=db,
+                        run=run,
+                        recipients=recipients,
+                    )
+                    if reused:
+                        await db.commit()
+                        return
+                    # else: no existing digest to reuse → fall through and
+                    # generate a (minimal) new digest so the run row is valid.
+
                 # Phase 2: Compile digest
                 digest_data = await self.digest_compiler.compile(run_id, all_findings, db)
 
@@ -168,6 +185,77 @@ class Orchestrator:
                 run.error_log = str(e)
                 run.completed_at = datetime.now(timezone.utc)
                 await db.commit()
+
+    async def _try_reuse_latest_digest(
+        self,
+        run_id: str,
+        db: AsyncSession,
+        run: Run,
+        recipients: Optional[list[str]],
+    ) -> bool:
+        """Reuse the most recent digest PDF when agents find zero new content.
+
+        Returns True if a previous digest was found and the run was finalised,
+        False otherwise (caller should fall through to normal compilation).
+        """
+        # Find the latest digest that has a PDF on disk
+        latest = await db.execute(
+            select(Digest)
+            .where(Digest.pdf_path.isnot(None))
+            .order_by(Digest.created_at.desc())
+            .limit(1)
+        )
+        previous_digest = latest.scalar_one_or_none()
+
+        if not previous_digest or not previous_digest.pdf_path:
+            logger.info("no_previous_digest_to_reuse run_id=%s", run_id[:8])
+            return False
+
+        import pathlib
+        if not pathlib.Path(previous_digest.pdf_path).exists():
+            logger.warning(
+                "previous_digest_pdf_missing path=%s", previous_digest.pdf_path
+            )
+            return False
+
+        logger.info(
+            "reusing_previous_digest run_id=%s digest_id=%s pdf=%s",
+            run_id[:8],
+            str(previous_digest.id)[:8],
+            previous_digest.pdf_path,
+        )
+
+        # Send email with the reused PDF
+        email_sent = False
+        effective_recipients = (
+            recipients if recipients is not None else settings.email_recipient_list
+        )
+        if effective_recipients and settings.has_email_configured:
+            try:
+                today = datetime.now().strftime("%Y-%m-%d")
+                subject = f"Zentivra AI Radar - {today} (No new updates)"
+                email_sent = await self.email_service.send_digest_email(
+                    recipients=effective_recipients,
+                    subject=subject,
+                    executive_summary=(
+                        "No new content changes were detected since the last scan. "
+                        "Attached is the most recent intelligence digest for your reference."
+                    ),
+                    pdf_path=previous_digest.pdf_path,
+                )
+            except Exception as e:
+                logger.error("reuse_email_send_error error=%s", str(e))
+
+        # Finalise the run
+        run.status = RunStatus.COMPLETED
+        run.completed_at = datetime.now(timezone.utc)
+        run.total_findings = 0
+        run.error_log = (
+            "No new content detected. The latest digest "
+            f"(from {previous_digest.date}) was {'emailed' if email_sent else 'available'} "
+            "for reference. View it in the Digests section."
+        )
+        return True
 
     async def _run_agents(
         self,

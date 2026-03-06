@@ -161,8 +161,30 @@ class PDFRenderer:
         prepared["why_it_matters"] = self._clean_text(
             prepared.get("why_it_matters") or ""
         )
+        prepared["what_changed"] = self._clean_text(
+            prepared.get("what_changed") or ""
+        )
+        prepared["who_it_affects"] = self._clean_text(
+            prepared.get("who_it_affects") or ""
+        )
         prepared["publisher"] = self._clean_text(prepared.get("publisher") or "")
         prepared["category"] = self._clean_text(prepared.get("category") or "other")
+
+        # Key numbers (list of strings)
+        raw_numbers = prepared.get("key_numbers") or []
+        if isinstance(raw_numbers, list):
+            prepared["key_numbers"] = [self._clean_text(n) for n in raw_numbers if n]
+        else:
+            prepared["key_numbers"] = []
+
+        # Entities
+        raw_entities = prepared.get("entities") or {}
+        if isinstance(raw_entities, dict):
+            prepared["entities"] = {
+                k: v for k, v in raw_entities.items() if v
+            }
+        else:
+            prepared["entities"] = {}
 
         summary_basis = prepared["summary_short"] or prepared["summary_long"]
         prepared["summary_points"] = self._extract_points(summary_basis, max_points=4)
@@ -170,6 +192,12 @@ class PDFRenderer:
             prepared["why_it_matters"],
             max_points=3,
         )
+
+        # Scoring breakdown for visual bars
+        prepared["relevance_score"] = float(prepared.get("relevance_score") or 0)
+        prepared["novelty_score"] = float(prepared.get("novelty_score") or 0)
+        prepared["credibility_score"] = float(prepared.get("credibility_score") or 0)
+        prepared["actionability_score"] = float(prepared.get("actionability_score") or 0)
 
         source_url = self._strip_wrapping_quotes(str(prepared.get("source_url") or "").strip())
         prepared["source_url"] = source_url
@@ -523,38 +551,105 @@ class PDFRenderer:
                 domain = str(finding.get("source_domain") or "")
                 publisher = finding.get("publisher") or domain or "Unknown source"
                 category = finding.get("category", "other")
-                meta_line = f"- Source: {publisher}"
+                meta_line = f"Source: {publisher}"
                 score_line = (
-                    f"- Category: {category} | Confidence {confidence}% | Impact {impact}%"
+                    f"Category: {category} | Confidence {confidence}% | Impact {impact}%"
                 )
                 pdf.set_font("Helvetica", size=8)
-                write_wrapped(meta_line, 4.2)
-                write_wrapped(score_line, 4.2)
+                write_wrapped(f"- {meta_line}", 4.2)
+                write_wrapped(f"- {score_line}", 4.2)
 
+                # Summary
                 summary_points = (
                     finding.get("summary_points")
                     or self._extract_points(
                         finding.get("summary_short")
                         or finding.get("summary_long")
                         or "No summary available.",
-                        max_points=3,
+                        max_points=4,
                     )
                 )
+                pdf.set_font("Helvetica", "B", 8)
+                write_wrapped("Summary:", 4.2)
                 pdf.set_font("Helvetica", size=9)
-                for point in summary_points[:3]:
-                    write_wrapped(f"- {point}", 4.6)
+                for point in summary_points[:4]:
+                    write_wrapped(f"  - {point}", 4.6)
 
+                # Detailed Analysis
+                summary_long = finding.get("summary_long") or ""
+                if summary_long:
+                    ensure_space(12)
+                    pdf.set_font("Helvetica", "B", 8)
+                    write_wrapped("Detailed Analysis:", 4.2)
+                    pdf.set_font("Helvetica", size=8)
+                    write_wrapped(truncate(summary_long, 600), 4.2)
+
+                # What Changed
+                what_changed = finding.get("what_changed") or ""
+                if what_changed:
+                    ensure_space(10)
+                    pdf.set_font("Helvetica", "B", 8)
+                    write_wrapped("What Changed:", 4.2)
+                    pdf.set_font("Helvetica", size=8)
+                    write_wrapped(truncate(what_changed, 400), 4.2)
+
+                # Why It Matters
                 why_points = (
                     finding.get("why_points")
-                    or self._extract_points(finding.get("why_it_matters") or "", max_points=2)
+                    or self._extract_points(finding.get("why_it_matters") or "", max_points=3)
                 )
-                for point in why_points[:2]:
-                    write_wrapped(f"- Why it matters: {point}", 4.6)
+                if why_points:
+                    pdf.set_font("Helvetica", "B", 8)
+                    write_wrapped("Why It Matters:", 4.2)
+                    pdf.set_font("Helvetica", size=8)
+                    for point in why_points[:3]:
+                        write_wrapped(f"  - {point}", 4.4)
+
+                # Who It Affects
+                who_it_affects = finding.get("who_it_affects") or ""
+                if who_it_affects:
+                    pdf.set_font("Helvetica", "B", 8)
+                    write_wrapped("Who It Affects:", 4.2)
+                    pdf.set_font("Helvetica", size=8)
+                    write_wrapped(truncate(who_it_affects, 300), 4.2)
+
+                # Key Numbers & Claims
+                key_numbers = finding.get("key_numbers") or []
+                if key_numbers:
+                    pdf.set_font("Helvetica", "B", 8)
+                    write_wrapped("Key Numbers & Claims:", 4.2)
+                    pdf.set_font("Helvetica", size=8)
+                    for num in key_numbers[:6]:
+                        write_wrapped(f"  - {safe_text(num)}", 4.2)
+
+                # Entity Badges
+                entities = finding.get("entities") or {}
+                entity_parts = []
+                for etype, elist in entities.items():
+                    if elist and isinstance(elist, list):
+                        for e in elist[:4]:
+                            entity_parts.append(f"{etype}: {e}")
+                if entity_parts:
+                    pdf.set_font("Helvetica", "I", 7)
+                    write_wrapped(" | ".join(entity_parts[:8]), 3.8)
+
+                # Score Breakdown
+                rel = float(finding.get("relevance_score") or 0)
+                nov = float(finding.get("novelty_score") or 0)
+                cred = float(finding.get("credibility_score") or 0)
+                act = float(finding.get("actionability_score") or 0)
+                if any([rel, nov, cred, act]):
+                    pdf.set_font("Helvetica", size=7)
+                    score_text = (
+                        f"Scores: Relevance {rel:.1f} | Novelty {nov:.1f} | "
+                        f"Credibility {cred:.1f} | Actionability {act:.1f}"
+                    )
+                    write_wrapped(score_text, 3.6)
 
                 source_url = finding.get("source_url") or ""
                 if source_url:
-                    pdf.set_font("Helvetica", size=8)
-                    write_wrapped(f"- Link: {source_url}", 4.2)
+                    pdf.set_font("Helvetica", size=7)
+                    write_wrapped(f"Link: {source_url}", 3.6)
 
                 pdf.set_draw_color(180, 180, 180)
                 divider_y = pdf.get_y() + 1

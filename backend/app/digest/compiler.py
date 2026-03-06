@@ -69,7 +69,7 @@ class DigestCompiler:
             llm_model=llm_model,
             weights=ranking_weights,
         )
-        self.summarizer = Summarizer(provider=llm_provider, model=llm_model)
+        self.summarizer = Summarizer()
 
     async def compile(
         self,

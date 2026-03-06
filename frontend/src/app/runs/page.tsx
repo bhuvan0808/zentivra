@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Play, Loader2 } from "lucide-react";
+import { Play, Loader2, Info, FileText } from "lucide-react";
 import { toast } from "sonner";
+import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import {
   StatusBadge,
@@ -37,6 +38,10 @@ const AGENT_OPTIONS: { key: AgentType; label: string }[] = [
   { key: "research", label: "Research" },
   { key: "hf_benchmark", label: "HF Benchmark" },
 ];
+
+function isNoNewContentMessage(log: string | null | undefined): boolean {
+  return !!log && log.startsWith("No new content detected");
+}
 
 export default function RunsPage() {
   const [runs, setRuns] = useState<Run[]>([]);
@@ -266,25 +271,25 @@ export default function RunsPage() {
                       <div className="flex flex-wrap gap-1">
                         {run.agent_statuses
                           ? Object.entries(run.agent_statuses).map(
-                              ([agent, status]) => {
-                                const isCompleted = status.startsWith("completed");
-                                const isPending = status === "pending";
-                                return (
-                                  <StatusBadge
-                                    key={agent}
-                                    variant={
-                                      isCompleted
-                                        ? "success"
-                                        : isPending
-                                          ? "neutral"
-                                          : "warning"
-                                    }
-                                  >
-                                    {agent.replace("_", " ")}
-                                  </StatusBadge>
-                                );
-                              }
-                            )
+                            ([agent, status]) => {
+                              const isCompleted = status.startsWith("completed");
+                              const isPending = status === "pending";
+                              return (
+                                <StatusBadge
+                                  key={agent}
+                                  variant={
+                                    isCompleted
+                                      ? "success"
+                                      : isPending
+                                        ? "neutral"
+                                        : "warning"
+                                  }
+                                >
+                                  {agent.replace("_", " ")}
+                                </StatusBadge>
+                              );
+                            }
+                          )
                           : <span className="text-xs text-muted-foreground">—</span>
                         }
                       </div>
@@ -308,6 +313,35 @@ export default function RunsPage() {
           </DialogHeader>
           {selectedRun && (
             <div className="space-y-4">
+              {/* ── Info banner for "no new content" runs ── */}
+              {selectedRun.status === "completed" &&
+                selectedRun.total_findings === 0 &&
+                isNoNewContentMessage(selectedRun.error_log) && (
+                  <div className="flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950/40">
+                    <Info className="mt-0.5 size-5 shrink-0 text-blue-500" />
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-blue-900 dark:text-blue-200">
+                        No New Content Detected
+                      </p>
+                      <p className="text-xs text-blue-700 dark:text-blue-300">
+                        All monitored sources returned the same content as the
+                        previous scan. The latest digest has been emailed for
+                        your reference.
+                      </p>
+                      <Link href="/digests">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-1 gap-1.5"
+                        >
+                          <FileText className="size-3.5" />
+                          View Latest Digest
+                        </Button>
+                      </Link>
+                    </div>
+                  </div>
+                )}
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="data-label">Run ID</p>
@@ -373,14 +407,15 @@ export default function RunsPage() {
                 </div>
               )}
 
-              {selectedRun.error_log && (
-                <div>
-                  <p className="data-label mb-1">Error Log</p>
-                  <pre className="rounded-md bg-muted p-3 text-xs font-mono overflow-x-auto">
-                    {selectedRun.error_log}
-                  </pre>
-                </div>
-              )}
+              {selectedRun.error_log &&
+                !isNoNewContentMessage(selectedRun.error_log) && (
+                  <div>
+                    <p className="data-label mb-1">Error Log</p>
+                    <pre className="rounded-md bg-muted p-3 text-xs font-mono overflow-x-auto">
+                      {selectedRun.error_log}
+                    </pre>
+                  </div>
+                )}
             </div>
           )}
         </DialogContent>

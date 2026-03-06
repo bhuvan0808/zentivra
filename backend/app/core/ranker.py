@@ -39,7 +39,7 @@ class Ranker:
     ):
         self.use_llm = use_llm
         self._summarizer = (
-            Summarizer(provider=llm_provider, model=llm_model) if use_llm else None
+            Summarizer() if use_llm else None
         )
         w = weights or {}
         self.relevance_weight = w.get("relevance", DEFAULT_RELEVANCE_WEIGHT)
