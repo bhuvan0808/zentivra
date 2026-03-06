@@ -1,10 +1,22 @@
 import uuid
 from datetime import datetime, timezone
+from enum import Enum as PyEnum
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+
+class FindingCategory(str, PyEnum):
+    MODELS = "models"
+    APIS = "apis"
+    PRICING = "pricing"
+    BENCHMARKS = "benchmarks"
+    SAFETY = "safety"
+    TOOLING = "tooling"
+    RESEARCH = "research"
+    OTHER = "other"
 
 
 class Finding(Base):

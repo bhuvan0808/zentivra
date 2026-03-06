@@ -1,11 +1,20 @@
 import uuid
 from datetime import datetime, timezone
+from enum import Enum as PyEnum
 
 from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+
+class RunStatus(str, PyEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    PARTIAL = "partial"
 
 
 class Run(Base):

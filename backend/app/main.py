@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.config import settings
-from app.database import init_db, close_db
+from app.database import init_db, close_db, seed_sources_if_empty
 from app.api.router import api_router
 
 
@@ -60,6 +60,10 @@ async def lifespan(app: FastAPI):
     # Initialize database tables (creates them if using SQLite)
     await init_db()
     logger.info("database_initialized url=%s...", settings.database_url[:30])
+
+    # TODO: Remove seed call before production deployment
+    await seed_sources_if_empty()
+    # END TODO
 
     # Log LLM provider status
     logger.info(
