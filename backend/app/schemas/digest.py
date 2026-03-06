@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 class DigestResponse(BaseModel):
     """Schema for digest API responses."""
+
     id: str
     run_id: str
     date: date

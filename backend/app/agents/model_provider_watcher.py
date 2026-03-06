@@ -10,23 +10,47 @@ import re
 from app.utils.logger import logger
 
 from app.agents.base_agent import BaseAgent
+from app.models.source import Source
 
 # Keywords specific to model provider updates
 MODEL_KEYWORDS = [
-    "model", "context window", "context length", "token",
-    "function calling", "tool use", "vision", "multimodal",
-    "embedding", "fine-tuning", "fine tuning",
+    "model",
+    "context window",
+    "context length",
+    "token",
+    "function calling",
+    "tool use",
+    "vision",
+    "multimodal",
+    "embedding",
+    "fine-tuning",
+    "fine tuning",
 ]
 
 PRICING_KEYWORDS = [
-    "pricing", "cost", "price", "per token", "per million",
-    "input tokens", "output tokens", "rate limit", "quota",
-    "free tier", "credit",
+    "pricing",
+    "cost",
+    "price",
+    "per token",
+    "per million",
+    "input tokens",
+    "output tokens",
+    "rate limit",
+    "quota",
+    "free tier",
+    "credit",
 ]
 
 API_KEYWORDS = [
-    "API", "endpoint", "SDK", "version", "deprecation",
-    "breaking change", "migration", "changelog", "release",
+    "API",
+    "endpoint",
+    "SDK",
+    "version",
+    "deprecation",
+    "breaking change",
+    "migration",
+    "changelog",
+    "release",
 ]
 
 

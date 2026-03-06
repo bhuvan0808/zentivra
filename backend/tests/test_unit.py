@@ -15,11 +15,13 @@ sys.path.insert(0, ".")
 # Extractor Tests
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestExtractor:
     """Test HTML/RSS content extraction."""
 
     def setup_method(self):
         from app.core.extractor import Extractor
+
         self.extractor = Extractor()
 
     def test_extract_html_basic(self):
@@ -107,11 +109,13 @@ class TestExtractor:
 # Change Detector Tests
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestChangeDetector:
     """Test content change detection and significance filtering."""
 
     def setup_method(self):
         from app.core.change_detector import ChangeDetector
+
         self.detector = ChangeDetector()
 
     def test_first_fetch_is_significant(self):
@@ -139,7 +143,10 @@ class TestChangeDetector:
     def test_major_change_significant(self):
         """Large content changes should be significant."""
         old = "Old product description. Version 1.0 available."
-        new = "Completely new product launch! Version 2.0 with revolutionary features. " * 5
+        new = (
+            "Completely new product launch! Version 2.0 with revolutionary features. "
+            * 5
+        )
         result = self.detector.compare(old, new)
         assert result.has_changed is True
         assert result.change_ratio > 0.3, "Major rewrite should have high change ratio"
@@ -155,6 +162,7 @@ class TestChangeDetector:
     def test_canonicalization_strips_noise(self):
         """Canonicalization should normalize whitespace and timestamps."""
         from app.core.change_detector import ChangeDetector
+
         d = ChangeDetector()
         text1 = "Hello   world   2024-01-01T10:00:00Z   test"
         text2 = "Hello world 2024-01-02T10:00:00Z test"
@@ -169,19 +177,36 @@ class TestChangeDetector:
 # Dedup Engine Tests
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestDedupEngine:
     """Test deduplication via hash matching."""
 
     def setup_method(self):
         from app.core.dedup import DedupEngine
+
         self.dedup = DedupEngine()
 
     def test_no_duplicates(self):
         """Unique findings should all pass through."""
         findings = [
-            {"id": "1", "title": "Finding A", "summary_short": "First unique finding", "diff_hash": "hash_a"},
-            {"id": "2", "title": "Finding B", "summary_short": "Second unique finding", "diff_hash": "hash_b"},
-            {"id": "3", "title": "Finding C", "summary_short": "Third unique finding", "diff_hash": "hash_c"},
+            {
+                "id": "1",
+                "title": "Finding A",
+                "summary_short": "First unique finding",
+                "diff_hash": "hash_a",
+            },
+            {
+                "id": "2",
+                "title": "Finding B",
+                "summary_short": "Second unique finding",
+                "diff_hash": "hash_b",
+            },
+            {
+                "id": "3",
+                "title": "Finding C",
+                "summary_short": "Third unique finding",
+                "diff_hash": "hash_c",
+            },
         ]
         result = self.dedup.deduplicate(findings)
         assert result.total_unique == 3
@@ -205,7 +230,14 @@ class TestDedupEngine:
 
     def test_single_finding(self):
         """Single finding should pass through."""
-        findings = [{"id": "1", "title": "Solo", "summary_short": "Only one", "diff_hash": "unique"}]
+        findings = [
+            {
+                "id": "1",
+                "title": "Solo",
+                "summary_short": "Only one",
+                "diff_hash": "unique",
+            }
+        ]
         result = self.dedup.deduplicate(findings)
         assert result.total_unique == 1
         assert result.total_duplicates == 0
@@ -215,22 +247,39 @@ class TestDedupEngine:
 # Ranker Tests
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestRanker:
     """Test impact scoring and ranking."""
 
     def test_heuristic_scoring(self):
         """Test ranking without LLM (heuristic fallback)."""
         from app.core.ranker import Ranker
+
         ranker = Ranker(use_llm=False)
 
         findings = [
-            {"id": "1", "title": "Low Impact", "category": "other", "confidence": 0.3,
-             "summary_short": "Minor update", "tags": [], "entities": {}},
-            {"id": "2", "title": "High Impact", "category": "models", "confidence": 0.9,
-             "summary_short": "Major model release", "tags": ["model_release"], "entities": {}},
+            {
+                "id": "1",
+                "title": "Low Impact",
+                "category": "other",
+                "confidence": 0.3,
+                "summary_short": "Minor update",
+                "tags": [],
+                "entities": {},
+            },
+            {
+                "id": "2",
+                "title": "High Impact",
+                "category": "models",
+                "confidence": 0.9,
+                "summary_short": "Major model release",
+                "tags": ["model_release"],
+                "entities": {},
+            },
         ]
 
         import asyncio
+
         ranked = asyncio.run(ranker.rank_findings(findings))
 
         assert len(ranked) == 2
@@ -241,6 +290,7 @@ class TestRanker:
     def test_impact_formula(self):
         """Test the weighted impact formula."""
         from app.core.ranker import Ranker
+
         ranker = Ranker(use_llm=False)
 
         # Inputs on 0-10 scale (as used internally)
@@ -254,16 +304,24 @@ class TestRanker:
     def test_ranking_order(self):
         """Findings should be sorted by impact score descending."""
         from app.core.ranker import Ranker
+
         ranker = Ranker(use_llm=False)
 
         findings = [
-            {"id": str(i), "title": f"F{i}", "category": "other",
-             "confidence": 0.1 * i, "summary_short": f"Text {i}",
-             "tags": [], "entities": {}}
+            {
+                "id": str(i),
+                "title": f"F{i}",
+                "category": "other",
+                "confidence": 0.1 * i,
+                "summary_short": f"Text {i}",
+                "tags": [],
+                "entities": {},
+            }
             for i in range(1, 6)
         ]
 
         import asyncio
+
         ranked = asyncio.run(ranker.rank_findings(findings))
 
         scores = [f["impact_score"] for f in ranked]
@@ -273,6 +331,7 @@ class TestRanker:
 # ═══════════════════════════════════════════════════════════════════════════
 # PDF Renderer Tests
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestPDFRenderer:
     """Test PDF/HTML rendering."""
@@ -338,6 +397,7 @@ class TestPDFRenderer:
 # Digest Compiler Tests
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestDigestCompiler:
     """Test digest compilation logic."""
 
@@ -357,10 +417,20 @@ class TestDigestCompiler:
 
         compiler = DigestCompiler()
         findings = [
-            {"id": "1", "title": "Research Paper", "category": "research",
-             "tags": ["research_paper"], "confidence": 0.8},
-            {"id": "2", "title": "Model Release", "category": "models",
-             "tags": ["model_release"], "confidence": 0.9},
+            {
+                "id": "1",
+                "title": "Research Paper",
+                "category": "research",
+                "tags": ["research_paper"],
+                "confidence": 0.8,
+            },
+            {
+                "id": "2",
+                "title": "Model Release",
+                "category": "models",
+                "tags": ["model_release"],
+                "confidence": 0.9,
+            },
         ]
 
         sections = compiler._organize_by_section(findings)
@@ -386,6 +456,7 @@ class TestDigestCompiler:
 # ═══════════════════════════════════════════════════════════════════════════
 # Agent Worker Tests
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestAgentWorkers:
     """Test agent-specific post-processing logic."""
@@ -413,7 +484,9 @@ class TestAgentWorkers:
         class MockExtraction:
             text = "test"
 
-        result = asyncio.run(agent.post_process_finding(finding, MockExtraction(), MockSource()))
+        result = asyncio.run(
+            agent.post_process_finding(finding, MockExtraction(), MockSource())
+        )
         assert result["confidence"] > 0.6, "Should boost for GA/pricing/API keywords"
 
     def test_model_provider_model_detection(self):
@@ -440,7 +513,9 @@ class TestAgentWorkers:
         class MockExtraction:
             text = "test"
 
-        result = asyncio.run(agent.post_process_finding(finding, MockExtraction(), MockSource()))
+        result = asyncio.run(
+            agent.post_process_finding(finding, MockExtraction(), MockSource())
+        )
         # The model_provider_watcher detects model keywords and sets category
         assert result["category"] in ("models", "apis")
 
@@ -470,7 +545,9 @@ class TestAgentWorkers:
         class MockExtraction:
             text = "test"
 
-        result = asyncio.run(agent.post_process_finding(finding, MockExtraction(), MockSource()))
+        result = asyncio.run(
+            agent.post_process_finding(finding, MockExtraction(), MockSource())
+        )
         assert "sota_claim" in result["tags"]
         assert "MMLU" in result["tags"]
         assert result["category"] == "benchmarks"
@@ -480,12 +557,14 @@ class TestAgentWorkers:
 # Config Tests
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestConfig:
     """Test configuration loading."""
 
     def test_settings_load(self):
         """Settings should load from .env."""
         from app.config import settings
+
         assert settings.database_url
         assert settings.digest_time
         assert settings.timezone
@@ -493,18 +572,28 @@ class TestConfig:
     def test_llm_provider_detection(self):
         """Should detect active LLM provider."""
         from app.config import settings
+
         provider = settings.active_llm_provider
-        assert provider in ("groq", "openrouter", "gemini", "openai", "anthropic", "none")
+        assert provider in (
+            "groq",
+            "openrouter",
+            "gemini",
+            "openai",
+            "anthropic",
+            "none",
+        )
 
     def test_email_recipient_parsing(self):
         """Should parse comma-separated recipients."""
         from app.config import Settings
+
         s = Settings(email_recipients="a@b.com, c@d.com")
         assert s.email_recipient_list == ["a@b.com", "c@d.com"]
 
     def test_empty_recipients(self):
         """Empty recipients should return empty list."""
         from app.config import Settings
+
         s = Settings(email_recipients="")
         assert s.email_recipient_list == []
 
@@ -513,12 +602,14 @@ class TestConfig:
 # Rate Limiter Tests
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestRateLimiter:
     """Test async rate limiter."""
 
     def test_rate_limiter_creation(self):
         """Should create rate limiter instances."""
         from app.core.rate_limiter import RateLimiter
+
         limiter = RateLimiter()
         assert limiter is not None
 

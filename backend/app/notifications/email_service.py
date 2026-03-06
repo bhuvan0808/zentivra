@@ -56,12 +56,13 @@ class EmailService:
             return False
 
         # Build HTML email body
-        html_body = self._build_email_body(
-            executive_summary, dashboard_url, pdf_path
-        )
+        html_body = self._build_email_body(executive_summary, dashboard_url, pdf_path)
 
         try:
-            if settings.sendgrid_api_key and settings.sendgrid_api_key != "your-sendgrid-api-key-here":
+            if (
+                settings.sendgrid_api_key
+                and settings.sendgrid_api_key != "your-sendgrid-api-key-here"
+            ):
                 return await self._send_via_sendgrid(
                     recipients, subject, html_body, pdf_path
                 )
@@ -190,7 +191,9 @@ class EmailService:
         today = date.today().strftime("%B %d, %Y")
 
         # Convert markdown-ish text to basic HTML
-        summary_html = executive_summary.replace("\n\n", "</p><p>").replace("\n", "<br>")
+        summary_html = executive_summary.replace("\n\n", "</p><p>").replace(
+            "\n", "<br>"
+        )
         if not summary_html.startswith("<p>"):
             summary_html = f"<p>{summary_html}</p>"
 

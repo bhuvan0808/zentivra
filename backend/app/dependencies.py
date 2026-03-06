@@ -12,9 +12,11 @@ from app.services.source_service import SourceService
 from app.services.run_service import RunService
 from app.services.finding_service import FindingService
 from app.services.digest_service import DigestService
-
+from app.repositories.orchestrator_config_repository import OrchestratorConfigRepository
+from app.services.orchestrator_config_service import OrchestratorConfigService
 
 # ── Source ──────────────────────────────────────────────
+
 
 def get_source_repository(db: AsyncSession = Depends(get_db)) -> SourceRepository:
     return SourceRepository(db)
@@ -28,6 +30,7 @@ def get_source_service(
 
 # ── Run ─────────────────────────────────────────────────
 
+
 def get_run_repository(db: AsyncSession = Depends(get_db)) -> RunRepository:
     return RunRepository(db)
 
@@ -39,6 +42,7 @@ def get_run_service(
 
 
 # ── Finding ─────────────────────────────────────────────
+
 
 def get_finding_repository(db: AsyncSession = Depends(get_db)) -> FindingRepository:
     return FindingRepository(db)
@@ -52,6 +56,7 @@ def get_finding_service(
 
 # ── Digest ──────────────────────────────────────────────
 
+
 def get_digest_repository(db: AsyncSession = Depends(get_db)) -> DigestRepository:
     return DigestRepository(db)
 
@@ -60,3 +65,18 @@ def get_digest_service(
     repo: DigestRepository = Depends(get_digest_repository),
 ) -> DigestService:
     return DigestService(repo)
+
+
+# ── Orchestrator Config ──────────────────────────────────
+
+
+def get_orchestrator_config_repository(
+    db: AsyncSession = Depends(get_db),
+) -> OrchestratorConfigRepository:
+    return OrchestratorConfigRepository(db)
+
+
+def get_orchestrator_config_service(
+    repo: OrchestratorConfigRepository = Depends(get_orchestrator_config_repository),
+) -> OrchestratorConfigService:
+    return OrchestratorConfigService(repo)

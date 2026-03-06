@@ -353,6 +353,7 @@ curl -X GET "$BASE_URL/api/runs?limit=20"
     },
     "total_findings": 15,
     "error_log": null,
+    "log_path": "data/logs/8ef7675f-a7bb-4979-b736-53fa775f06a9.ndjson",
     "triggered_by": "manual"
   }
 ]
@@ -384,11 +385,12 @@ curl -X GET "$BASE_URL/api/runs/8ef7675f-a7bb-4979-b736-53fa775f06a9"
   },
   "total_findings": 0,
   "error_log": null,
+  "log_path": "data/logs/8ef7675f-a7bb-4979-b736-53fa775f06a9.ndjson",
   "triggered_by": "manual"
 }
 ```
 
-**Success (200) -- failed run:**
+**Success (200) -- failed run (no LLM configured):**
 
 ```json
 {
@@ -396,14 +398,31 @@ curl -X GET "$BASE_URL/api/runs/8ef7675f-a7bb-4979-b736-53fa775f06a9"
   "started_at": "2026-03-05T10:24:11.000000+00:00",
   "completed_at": "2026-03-05T10:24:55.000000+00:00",
   "status": "failed",
-  "agent_statuses": {
-    "competitor": "failed",
-    "model_provider": "failed",
-    "research": "failed",
-    "hf_benchmark": "failed"
-  },
+  "agent_statuses": null,
   "total_findings": 0,
-  "error_log": "Pipeline execution error: LLM provider not configured",
+  "error_log": "No LLM provider configured",
+  "log_path": "data/logs/8ef7675f-a7bb-4979-b736-53fa775f06a9.ndjson",
+  "triggered_by": "manual"
+}
+```
+
+**Success (200) -- partial run (some agents failed):**
+
+```json
+{
+  "id": "8ef7675f-a7bb-4979-b736-53fa775f06a9",
+  "started_at": "2026-03-05T10:24:11.000000+00:00",
+  "completed_at": "2026-03-05T10:28:33.000000+00:00",
+  "status": "partial",
+  "agent_statuses": {
+    "competitor": "completed (6 findings)",
+    "model_provider": "completed (4 findings)",
+    "research": "failed: Timeout fetching arxiv RSS after 30s",
+    "hf_benchmark": "completed (2 findings)"
+  },
+  "total_findings": 12,
+  "error_log": null,
+  "log_path": "data/logs/8ef7675f-a7bb-4979-b736-53fa775f06a9.ndjson",
   "triggered_by": "manual"
 }
 ```
@@ -437,6 +456,93 @@ curl -X POST "$BASE_URL/api/runs/trigger"
 ```json
 {
   "detail": "Run 8ef7675f-a7bb-4979-b736-53fa775f06a9 is already in progress."
+}
+```
+
+### 4) Get Run Execution Logs
+
+```bash
+curl -X GET "$BASE_URL/api/runs/2ac8d104-9a3e-4912-9690-b3576e909676/logs"
+```
+
+With filters:
+
+```bash
+curl -X GET "$BASE_URL/api/runs/2ac8d104-9a3e-4912-9690-b3576e909676/logs?agent=competitor&level=ERROR&tail=50"
+```
+
+**Success (200):**
+
+```json
+[
+  {
+    "ts": "2026-03-05T10:20:01.123000+00:00",
+    "run_id": "2ac8d104-9a3e-4912-9690-b3576e909676",
+    "level": "INFO",
+    "agent": null,
+    "phase": "init",
+    "event": "pipeline_run_start"
+  },
+  {
+    "ts": "2026-03-05T10:20:01.234000+00:00",
+    "run_id": "2ac8d104-9a3e-4912-9690-b3576e909676",
+    "level": "INFO",
+    "agent": "competitor",
+    "phase": "fetch",
+    "event": "url_fetched",
+    "url": "https://openai.com/blog",
+    "status_code": 200,
+    "content_length": 48210,
+    "method": "httpx",
+    "progress": "1/3"
+  },
+  {
+    "ts": "2026-03-05T10:20:05.567000+00:00",
+    "run_id": "2ac8d104-9a3e-4912-9690-b3576e909676",
+    "level": "INFO",
+    "agent": "competitor",
+    "phase": "finding",
+    "event": "finding_created",
+    "title": "OpenAI launches GPT-5 Turbo with native tool use",
+    "confidence": 0.92,
+    "category": "models"
+  },
+  {
+    "ts": "2026-03-05T10:20:12.890000+00:00",
+    "run_id": "2ac8d104-9a3e-4912-9690-b3576e909676",
+    "level": "ERROR",
+    "agent": "research",
+    "phase": "error",
+    "event": "url_processing_error",
+    "url": "https://arxiv.org/rss/cs.CL",
+    "error": "Timeout: connection timed out after 30s"
+  }
+]
+```
+
+Returns empty array `[]` when no log entries match the filters.
+
+**Error -- run not found (404):**
+
+```json
+{
+  "detail": "Run not found"
+}
+```
+
+**Error -- no logs available (404):**
+
+```json
+{
+  "detail": "No logs available for this run"
+}
+```
+
+**Error -- log file missing from disk (404):**
+
+```json
+{
+  "detail": "Log file not found on disk"
 }
 ```
 
@@ -670,6 +776,190 @@ curl -X GET "$BASE_URL/api/digests/5f2f9ac8-8e63-4b95-8f41-7f53a2288b89/pdf" \
 
 ---
 
+## Config API (`/api/config`)
+
+### Get Current Config
+
+```bash
+curl http://localhost:8000/api/config/
+```
+
+**Success (200):**
+
+```json
+{
+  "config": {
+    "crawl": {
+      "max_pages_per_domain": 50,
+      "request_timeout_seconds": 30,
+      "max_concurrent_urls": 5,
+      "respect_robots_txt": true
+    },
+    "schedule": {
+      "run_time": "06:00",
+      "timezone": "Asia/Kolkata",
+      "enabled": true
+    },
+    "llm": {
+      "default_provider": "groq",
+      "default_model": "llama-3.3-70b-versatile",
+      "agents": {
+        "competitor": { "provider": "groq", "model": "llama-3.3-70b-versatile" },
+        "model_provider": { "provider": "gemini", "model": "gemini-2.0-flash-lite" },
+        "research": { "provider": "groq", "model": "llama-3.3-70b-versatile" },
+        "hf_benchmark": { "provider": "gemini", "model": "gemini-2.0-flash-lite" }
+      }
+    },
+    "deduplication": {
+      "similarity_threshold": 0.85,
+      "min_confidence": 0.3
+    },
+    "ranking": {
+      "relevance_weight": 0.35,
+      "novelty_weight": 0.25,
+      "credibility_weight": 0.2,
+      "actionability_weight": 0.2
+    },
+    "digest": {
+      "max_findings_per_section": 15,
+      "include_appendix": true
+    },
+    "notifications": {
+      "email_recipients": [],
+      "send_on_empty": false
+    }
+  },
+  "updated_at": "2026-03-05T10:30:00Z"
+}
+```
+
+> **Note:** If no config has been saved yet, the response returns all defaults with `"updated_at": null`.
+
+---
+
+### Update Config (JSON Body)
+
+```bash
+curl -X PUT http://localhost:8000/api/config/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "crawl": {
+      "max_pages_per_domain": 100,
+      "request_timeout_seconds": 45
+    },
+    "llm": {
+      "default_provider": "gemini",
+      "default_model": "gemini-2.0-flash-lite",
+      "agents": {
+        "competitor": { "provider": "groq", "model": "llama-3.3-70b-versatile" },
+        "research": { "provider": "gemini", "model": "gemini-2.0-flash-lite" }
+      }
+    },
+    "deduplication": {
+      "similarity_threshold": 0.90
+    }
+  }'
+```
+
+**Success (200):**
+
+```json
+{
+  "config": {
+    "crawl": {
+      "max_pages_per_domain": 100,
+      "request_timeout_seconds": 45,
+      "max_concurrent_urls": 5,
+      "respect_robots_txt": true
+    },
+    "schedule": {
+      "run_time": "06:00",
+      "timezone": "Asia/Kolkata",
+      "enabled": true
+    },
+    "llm": {
+      "default_provider": "gemini",
+      "default_model": "gemini-2.0-flash-lite",
+      "agents": {
+        "competitor": { "provider": "groq", "model": "llama-3.3-70b-versatile" },
+        "research": { "provider": "gemini", "model": "gemini-2.0-flash-lite" }
+      }
+    },
+    "deduplication": {
+      "similarity_threshold": 0.9,
+      "min_confidence": 0.3
+    },
+    "ranking": {
+      "relevance_weight": 0.35,
+      "novelty_weight": 0.25,
+      "credibility_weight": 0.2,
+      "actionability_weight": 0.2
+    },
+    "digest": {
+      "max_findings_per_section": 15,
+      "include_appendix": true
+    },
+    "notifications": {
+      "email_recipients": [],
+      "send_on_empty": false
+    }
+  },
+  "updated_at": "2026-03-05T11:00:00Z"
+}
+```
+
+**Failure — invalid value (422):**
+
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "crawl", "max_pages_per_domain"],
+      "msg": "Input should be greater than or equal to 1",
+      "type": "greater_than_equal",
+      "input": -5
+    }
+  ]
+}
+```
+
+---
+
+### Upload Config File (JSON or YAML)
+
+```bash
+curl -X POST http://localhost:8000/api/config/upload \
+  -F "file=@config.yaml"
+```
+
+**Success (200):** Same response shape as PUT — full config with defaults filled in.
+
+**Failure — invalid YAML (422):**
+
+```json
+{
+  "detail": "Invalid YAML: mapping values are not allowed here ..."
+}
+```
+
+**Failure — invalid JSON (422):**
+
+```json
+{
+  "detail": "Invalid JSON: Expecting ',' delimiter at line 5"
+}
+```
+
+**Failure — unsupported format (422):**
+
+```json
+{
+  "detail": "Unsupported file format: 'txt'. Use .json, .yaml, or .yml"
+}
+```
+
+---
+
 ## Error Reference (for UI developers)
 
 ### How to parse errors in the frontend
@@ -715,11 +1005,17 @@ async function apiCall(url, options = {}) {
 | `DELETE /api/sources/{id}` | 404 | `"Source not found"` |
 | `GET /api/runs/{id}` | 404 | `"Run not found"` |
 | `POST /api/runs/trigger` | 409 | `"Run {id} is already in progress."` |
+| `GET /api/runs/{id}/logs` | 404 | `"Run not found"` |
+| `GET /api/runs/{id}/logs` | 404 | `"No logs available for this run"` |
+| `GET /api/runs/{id}/logs` | 404 | `"Log file not found on disk"` |
 | `GET /api/findings/{id}` | 404 | `"Finding not found"` |
 | `GET /api/digests/latest` | 404 | `"No digests found"` |
 | `GET /api/digests/{id}` | 404 | `"Digest not found"` |
 | `GET /api/digests/{id}/pdf` | 404 | `"Digest not found"` |
 | `GET /api/digests/{id}/pdf` | 404 | `"PDF not yet generated for this digest"` |
 | `GET /api/digests/{id}/pdf` | 404 | `"PDF file not found on disk"` |
+| `PUT /api/config/` | 422 | Validation error (e.g. out-of-range value) |
+| `POST /api/config/upload` | 422 | `"Invalid JSON: ..."` or `"Invalid YAML: ..."` |
+| `POST /api/config/upload` | 422 | `"Unsupported file format: '...'. Use .json, .yaml, or .yml"` |
 | Any `POST`/`PUT` with bad body | 422 | `[{loc, msg, type, input}, ...]` (array) |
 | Any unhandled server error | 500 | `{"detail": "Internal Server Error"}` |

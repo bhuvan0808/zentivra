@@ -1,4 +1,5 @@
 """Quick verification test for Phase 2 core pipeline components."""
+
 import asyncio
 import sys
 
@@ -15,6 +16,7 @@ def test_imports():
     from app.core.summarizer import Summarizer, SummaryResult
     from app.core.dedup import DedupEngine, DedupResult
     from app.core.ranker import Ranker
+
     print("  ✅ All imports successful!")
 
 
@@ -62,7 +64,9 @@ def test_change_detector():
     # Test different content
     result = detector.compare("Hello world v1", "Hello world v2 with updates")
     assert result.has_changed, "Different content should show change"
-    print(f"  Different content → changed={result.has_changed}, ratio={result.change_ratio:.2f} ✅")
+    print(
+        f"  Different content → changed={result.has_changed}, ratio={result.change_ratio:.2f} ✅"
+    )
 
     # Test first fetch (no previous)
     result = detector.compare(None, "Brand new content")
@@ -82,13 +86,30 @@ def test_dedup():
     engine = DedupEngine()
 
     findings = [
-        {"id": "1", "title": "GPT-5 Released", "summary_short": "OpenAI releases GPT-5", "confidence": 0.9},
-        {"id": "2", "title": "GPT-5 Released", "summary_short": "OpenAI releases GPT-5", "confidence": 0.7},
-        {"id": "3", "title": "Claude 4 Announced", "summary_short": "Anthropic announces Claude 4", "confidence": 0.8},
+        {
+            "id": "1",
+            "title": "GPT-5 Released",
+            "summary_short": "OpenAI releases GPT-5",
+            "confidence": 0.9,
+        },
+        {
+            "id": "2",
+            "title": "GPT-5 Released",
+            "summary_short": "OpenAI releases GPT-5",
+            "confidence": 0.7,
+        },
+        {
+            "id": "3",
+            "title": "Claude 4 Announced",
+            "summary_short": "Anthropic announces Claude 4",
+            "confidence": 0.8,
+        },
     ]
 
     result = engine.deduplicate(findings)
-    print(f"  Input: {result.total_input}, Unique: {result.total_unique}, Dups: {result.total_duplicates}")
+    print(
+        f"  Input: {result.total_input}, Unique: {result.total_unique}, Dups: {result.total_duplicates}"
+    )
     assert result.total_duplicates >= 1, "Should find at least 1 duplicate"
     print("  ✅ Dedup Engine working!")
 
@@ -114,7 +135,9 @@ async def test_fetcher():
     from app.core.fetcher import Fetcher
 
     fetcher = Fetcher()
-    result = await fetcher.fetch("https://httpbin.org/get", rate_limit_rpm=30, use_playwright_fallback=False)
+    result = await fetcher.fetch(
+        "https://httpbin.org/get", rate_limit_rpm=30, use_playwright_fallback=False
+    )
     print(f"  Status: {result.status_code}")
     print(f"  Content length: {len(result.content)} chars")
     print(f"  Hash: {result.content_hash[:16]}...")

@@ -23,7 +23,9 @@ class BaseRepository(Generic[ModelT]):
         )
         return result.scalar_one_or_none()
 
-    async def get_all(self, *, order_by=None, limit: int | None = None) -> Sequence[ModelT]:
+    async def get_all(
+        self, *, order_by=None, limit: int | None = None
+    ) -> Sequence[ModelT]:
         query = select(self.model)
         if order_by is not None:
             query = query.order_by(order_by)

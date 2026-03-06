@@ -13,17 +13,18 @@ from typing import Optional
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 # Resolve paths
 BASE_DIR = Path(__file__).resolve().parent.parent  # backend/
 CONFIG_DIR = BASE_DIR / "config"
 DATA_DIR = BASE_DIR / "data"
 SNAPSHOTS_DIR = DATA_DIR / "snapshots"
 DIGESTS_DIR = DATA_DIR / "digests"
+LOGS_DIR = DATA_DIR / "logs"
 
 # Ensure data directories exist
 SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 DIGESTS_DIR.mkdir(parents=True, exist_ok=True)
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class AppEnv(str, Enum):
@@ -86,13 +87,19 @@ class Settings(BaseSettings):
         """Determine which LLM provider is configured."""
         if self.groq_api_key and self.groq_api_key != "your-groq-api-key-here":
             return "groq"
-        if self.openrouter_api_key and self.openrouter_api_key != "your-openrouter-api-key-here":
+        if (
+            self.openrouter_api_key
+            and self.openrouter_api_key != "your-openrouter-api-key-here"
+        ):
             return "openrouter"
         if self.gemini_api_key and self.gemini_api_key != "your-gemini-api-key-here":
             return "gemini"
         if self.openai_api_key and self.openai_api_key != "your-openai-api-key-here":
             return "openai"
-        if self.anthropic_api_key and self.anthropic_api_key != "your-anthropic-api-key-here":
+        if (
+            self.anthropic_api_key
+            and self.anthropic_api_key != "your-anthropic-api-key-here"
+        ):
             return "anthropic"
         return "none"
 

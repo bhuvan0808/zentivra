@@ -16,9 +16,11 @@ from urllib.parse import urljoin
 
 from app.utils.logger import logger
 
+
 @dataclass
 class ExtractionResult:
     """Result of content extraction."""
+
     text: str = ""
     title: Optional[str] = None
     date: Optional[datetime] = None
@@ -34,6 +36,7 @@ class ExtractionResult:
 @dataclass
 class FeedEntry:
     """A single entry from an RSS/Atom feed."""
+
     title: str
     link: str
     published: Optional[datetime] = None
@@ -103,7 +106,9 @@ class Extractor:
 
             if not text:
                 return ExtractionResult(
-                    success=False, error="Trafilatura returned empty", method="trafilatura"
+                    success=False,
+                    error="Trafilatura returned empty",
+                    method="trafilatura",
                 )
 
             # Extract metadata
@@ -120,8 +125,11 @@ class Extractor:
 
             if metadata:
                 import json
+
                 try:
-                    meta_dict = json.loads(metadata) if isinstance(metadata, str) else metadata
+                    meta_dict = (
+                        json.loads(metadata) if isinstance(metadata, str) else metadata
+                    )
                     title = meta_dict.get("title")
                     author = meta_dict.get("author")
                     date_str = meta_dict.get("date")
@@ -153,9 +161,7 @@ class Extractor:
             )
         except Exception as e:
             logger.error("trafilatura_error error=%s", str(e))
-            return ExtractionResult(
-                success=False, error=str(e), method="trafilatura"
-            )
+            return ExtractionResult(success=False, error=str(e), method="trafilatura")
 
     def _extract_with_selectors(
         self, html: str, selectors: dict, url: str
@@ -204,9 +210,7 @@ class Extractor:
 
         except Exception as e:
             logger.error("selector_extraction_error error=%s", str(e))
-            return ExtractionResult(
-                success=False, error=str(e), method="css_selectors"
-            )
+            return ExtractionResult(success=False, error=str(e), method="css_selectors")
 
     def _extract_with_beautifulsoup(self, html: str, url: str) -> ExtractionResult:
         """Fallback: extract content using BeautifulSoup."""
@@ -231,7 +235,11 @@ class Extractor:
                 or soup
             )
 
-            text = main_content.get_text(separator="\n", strip=True) if main_content else ""
+            text = (
+                main_content.get_text(separator="\n", strip=True)
+                if main_content
+                else ""
+            )
 
             # Clean up the text
             text = re.sub(r"\n{3,}", "\n\n", text)
@@ -259,9 +267,7 @@ class Extractor:
 
         except Exception as e:
             logger.error("beautifulsoup_error error=%s", str(e))
-            return ExtractionResult(
-                success=False, error=str(e), method="beautifulsoup"
-            )
+            return ExtractionResult(success=False, error=str(e), method="beautifulsoup")
 
     def extract_feed(self, content: str, feed_url: str = "") -> list[FeedEntry]:
         """Extract entries from an RSS/Atom feed."""
@@ -276,6 +282,7 @@ class Extractor:
                 if hasattr(entry, "published_parsed") and entry.published_parsed:
                     try:
                         import time
+
                         published = datetime.fromtimestamp(
                             time.mktime(entry.published_parsed), tz=timezone.utc
                         )

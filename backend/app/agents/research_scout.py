@@ -116,6 +116,7 @@ class ResearchScout(BaseAgent):
                 headers["x-api-key"] = settings.semantic_scholar_api_key
 
             import httpx
+
             async with httpx.AsyncClient() as client:
                 resp = await client.get(
                     "https://api.semanticscholar.org/graph/v1/paper/search",

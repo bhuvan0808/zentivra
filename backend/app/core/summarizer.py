@@ -17,9 +17,10 @@ from app.config import settings
 @dataclass
 class SummaryResult:
     """Structured summary produced by the LLM."""
+
     title: str = ""
     summary_short: str = ""  # 2-3 sentence summary
-    summary_long: str = ""   # Detailed summary
+    summary_long: str = ""  # Detailed summary
     why_it_matters: str = ""
     what_changed: str = ""
     who_it_affects: str = ""
@@ -107,9 +108,18 @@ class Summarizer:
         scores = await summarizer.rank(title, summary, category, source)
     """
 
-    def __init__(self):
-        self._provider = settings.active_llm_provider
-        logger.info("summarizer_init provider=%s", self._provider)
+    def __init__(
+        self,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+    ):
+        self._provider = provider or settings.active_llm_provider
+        self._model = model
+        logger.info(
+            "summarizer_init provider=%s model=%s",
+            self._provider,
+            self._model or "default",
+        )
 
     async def summarize(
         self,
@@ -312,14 +322,16 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
         for attempt in range(max_retries):
             try:
                 response = client.models.generate_content(
-                    model="gemini-2.0-flash-lite",
+                    model=self._model or "gemini-2.0-flash-lite",
                     contents=prompt,
                 )
                 return response.text
             except Exception as e:
                 error_str = str(e)
                 # Check for rate-limit / retryDelay
-                delay_match = re.search(r"retryDelay['\"]?\s*[:=]\s*['\"]?(\d+)", error_str)
+                delay_match = re.search(
+                    r"retryDelay['\"]?\s*[:=]\s*['\"]?(\d+)", error_str
+                )
                 if delay_match and attempt < max_retries - 1:
                     delay = int(delay_match.group(1))
                     logger.warning(
@@ -330,7 +342,9 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
                     await asyncio.sleep(delay + 2)  # Wait the suggested delay + buffer
                 elif attempt < max_retries - 1:
                     wait = 2 ** (attempt + 1)
-                    logger.warning("gemini_error_retry error=%s wait=%d", error_str[:100], wait)
+                    logger.warning(
+                        "gemini_error_retry error=%s wait=%d", error_str[:100], wait
+                    )
                     await asyncio.sleep(wait)
                 else:
                     raise
@@ -347,7 +361,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "gpt-4o-mini",
+                    "model": self._model or "gpt-4o-mini",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.3,
                     "max_tokens": 2048,
@@ -371,7 +385,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
                     "anthropic-version": "2023-06-01",
                 },
                 json={
-                    "model": "claude-sonnet-4-20250514",
+                    "model": self._model or "claude-sonnet-4-20250514",
                     "max_tokens": 2048,
                     "messages": [{"role": "user", "content": prompt}],
                 },
@@ -393,7 +407,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "llama-3.3-70b-versatile",
+                    "model": self._model or "llama-3.3-70b-versatile",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.3,
                     "max_tokens": 2048,
@@ -418,7 +432,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
                     "X-Title": "Zentivra AI Radar",
                 },
                 json={
-                    "model": "meta-llama/llama-3.3-70b-instruct",
+                    "model": self._model or "meta-llama/llama-3.3-70b-instruct",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.3,
                     "max_tokens": 2048,
@@ -465,6 +479,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
         except json.JSONDecodeError:
             # Try to find JSON object in the response
             import re
+
             match = re.search(r"\{.*\}", response, re.DOTALL)
             if match:
                 try:

@@ -68,8 +68,13 @@ class PDFRenderer:
         # Convert HTML to PDF
         try:
             from weasyprint import HTML
+
             HTML(string=html_content).write_pdf(str(pdf_path))
-            logger.info("pdf_render_complete path=%s size_kb=%d", str(pdf_path), pdf_path.stat().st_size // 1024)
+            logger.info(
+                "pdf_render_complete path=%s size_kb=%d",
+                str(pdf_path),
+                pdf_path.stat().st_size // 1024,
+            )
         except ImportError:
             # Fallback: save as HTML if WeasyPrint is not available
             logger.warning("weasyprint_not_available fallback=html")
@@ -94,8 +99,14 @@ class PDFRenderer:
 
         context = {
             "date": str(digest_date),
-            "date_formatted": digest_date.strftime("%B %d, %Y") if hasattr(digest_date, "strftime") else str(digest_date),
-            "executive_summary": digest_data.get("executive_summary", "No summary available."),
+            "date_formatted": (
+                digest_date.strftime("%B %d, %Y")
+                if hasattr(digest_date, "strftime")
+                else str(digest_date)
+            ),
+            "executive_summary": digest_data.get(
+                "executive_summary", "No summary available."
+            ),
             "sections": digest_data.get("sections", {}),
             "total_findings": digest_data.get("total_findings", 0),
             "duplicates_removed": digest_data.get("total_duplicates_removed", 0),

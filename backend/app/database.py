@@ -10,16 +10,13 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.config import settings
 
-
 # Create async engine
 engine = create_async_engine(
     settings.database_url,
     echo=(settings.app_env.value == "development"),
     # For SQLite, we need check_same_thread=False
     connect_args=(
-        {"check_same_thread": False}
-        if "sqlite" in settings.database_url
-        else {}
+        {"check_same_thread": False} if "sqlite" in settings.database_url else {}
     ),
 )
 
@@ -33,6 +30,7 @@ async_session = async_sessionmaker(
 
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy models."""
+
     pass
 
 

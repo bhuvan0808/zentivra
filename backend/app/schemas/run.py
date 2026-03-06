@@ -10,6 +10,7 @@ from app.models.run import RunStatus
 
 class RunResponse(BaseModel):
     """Schema for run API responses."""
+
     id: str
     started_at: datetime
     completed_at: Optional[datetime] = None
@@ -17,6 +18,7 @@ class RunResponse(BaseModel):
     agent_statuses: Optional[dict] = None
     total_findings: int
     error_log: Optional[str] = None
+    log_path: Optional[str] = None
     triggered_by: str
 
     model_config = {"from_attributes": True}
@@ -24,6 +26,7 @@ class RunResponse(BaseModel):
 
 class RunTriggerResponse(BaseModel):
     """Schema for run trigger response."""
+
     run_id: str
     message: str
     status: RunStatus
