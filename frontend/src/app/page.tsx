@@ -35,37 +35,6 @@ import type {
   Run,
 } from "@/lib/types";
 
-type AIMLDoodleKind = "neural" | "pipeline" | "embedding";
-
-const AI_ML_DOODLES: {
-  kind: AIMLDoodleKind;
-  title: string;
-  description: string;
-  accentClass: string;
-}[] = [
-  {
-    kind: "neural",
-    title: "Neural Graph",
-    description: "Layered nodes showing weighted connections.",
-    accentClass:
-      "border-sky-500/20 from-sky-500/20 to-cyan-500/10 dark:border-sky-800/45 dark:from-slate-900 dark:to-sky-950/80",
-  },
-  {
-    kind: "pipeline",
-    title: "Model Pipeline",
-    description: "Data flow from ingestion to deployment.",
-    accentClass:
-      "border-violet-500/20 from-violet-500/20 to-fuchsia-500/10 dark:border-violet-800/45 dark:from-slate-900 dark:to-violet-950/80",
-  },
-  {
-    kind: "embedding",
-    title: "Embedding Space",
-    description: "Token clusters and semantic projection paths.",
-    accentClass:
-      "border-emerald-500/20 from-emerald-500/20 to-teal-500/10 dark:border-emerald-800/45 dark:from-slate-900 dark:to-emerald-950/80",
-  },
-];
-
 export default function DashboardPage() {
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [scheduler, setScheduler] = useState<SchedulerStatus | null>(null);
@@ -336,32 +305,6 @@ export default function DashboardPage() {
           />
         </div>
 
-        {/* AI/ML doodles */}
-        <Card className="mt-6 border-indigo-500/20 bg-gradient-to-br from-indigo-500/10 via-card to-card dark:border-indigo-800/45 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/70">
-          <CardHeader>
-            <CardTitle className="text-sm font-medium">AI/ML Doodles</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Concept sketches inspired by model architecture, pipelines, and embeddings.
-            </p>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 md:grid-cols-3">
-              {AI_ML_DOODLES.map((doodle) => (
-                <div
-                  key={doodle.kind}
-                  className={`group rounded-lg border bg-gradient-to-br ${doodle.accentClass} p-3 transition-transform hover:-translate-y-0.5`}
-                >
-                  <AIMLDoodle kind={doodle.kind} />
-                  <h3 className="mt-3 text-sm font-semibold">{doodle.title}</h3>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {doodle.description}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Category breakdown + Digest card */}
         <div className="mt-6 grid gap-6 lg:grid-cols-2">
           {/* Findings by category */}
@@ -489,94 +432,6 @@ export default function DashboardPage() {
         </Card>
       </div>
     </div>
-  );
-}
-
-function AIMLDoodle({ kind }: { kind: AIMLDoodleKind }) {
-  if (kind === "neural") {
-    return (
-      <svg
-        viewBox="0 0 260 140"
-        className="h-28 w-full rounded-md border bg-background/60 p-2 text-sky-600 dark:text-sky-300"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-      >
-        <line x1="35" y1="30" x2="95" y2="50" />
-        <line x1="35" y1="30" x2="95" y2="95" />
-        <line x1="35" y1="70" x2="95" y2="50" />
-        <line x1="35" y1="70" x2="95" y2="95" />
-        <line x1="35" y1="110" x2="95" y2="50" />
-        <line x1="35" y1="110" x2="95" y2="95" />
-
-        <line x1="95" y1="50" x2="165" y2="40" />
-        <line x1="95" y1="50" x2="165" y2="70" />
-        <line x1="95" y1="50" x2="165" y2="100" />
-        <line x1="95" y1="95" x2="165" y2="40" />
-        <line x1="95" y1="95" x2="165" y2="70" />
-        <line x1="95" y1="95" x2="165" y2="100" />
-
-        <line x1="165" y1="40" x2="225" y2="70" />
-        <line x1="165" y1="70" x2="225" y2="70" />
-        <line x1="165" y1="100" x2="225" y2="70" />
-
-        <circle cx="35" cy="30" r="6" />
-        <circle cx="35" cy="70" r="6" />
-        <circle cx="35" cy="110" r="6" />
-        <circle cx="95" cy="50" r="6" />
-        <circle cx="95" cy="95" r="6" />
-        <circle cx="165" cy="40" r="6" />
-        <circle cx="165" cy="70" r="6" />
-        <circle cx="165" cy="100" r="6" />
-        <circle cx="225" cy="70" r="7" />
-      </svg>
-    );
-  }
-
-  if (kind === "pipeline") {
-    return (
-      <svg
-        viewBox="0 0 260 140"
-        className="h-28 w-full rounded-md border bg-background/60 p-2 text-violet-600 dark:text-violet-300"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-      >
-        <rect x="12" y="48" width="52" height="40" rx="8" />
-        <rect x="92" y="48" width="52" height="40" rx="8" />
-        <rect x="172" y="48" width="52" height="40" rx="8" />
-        <path d="M64 68 L92 68" />
-        <path d="M144 68 L172 68" />
-        <path d="M83 32 Q118 8 153 32" strokeDasharray="5 4" />
-        <path d="M83 104 Q118 130 153 104" strokeDasharray="5 4" />
-        <path d="M84 28 L80 34 L88 34 Z" fill="currentColor" stroke="none" />
-        <path d="M152 104 L156 98 L148 98 Z" fill="currentColor" stroke="none" />
-        <path d="M88 64 L92 68 L88 72" />
-        <path d="M168 64 L172 68 L168 72" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg
-      viewBox="0 0 260 140"
-      className="h-28 w-full rounded-md border bg-background/60 p-2 text-emerald-600 dark:text-emerald-300"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-    >
-      <ellipse cx="128" cy="70" rx="104" ry="44" strokeDasharray="4 5" />
-      <circle cx="60" cy="54" r="5" />
-      <circle cx="95" cy="36" r="4" />
-      <circle cx="146" cy="45" r="5" />
-      <circle cx="182" cy="68" r="4" />
-      <circle cx="168" cy="96" r="5" />
-      <circle cx="110" cy="102" r="4" />
-      <circle cx="78" cy="82" r="4" />
-      <path d="M60 54 L95 36 L146 45 L182 68 L168 96 L110 102 L78 82 Z" />
-      <path d="M34 120 Q86 92 128 108 T226 92" strokeDasharray="5 4" />
-      <path d="M226 92 L220 90 L223 97 Z" fill="currentColor" stroke="none" />
-    </svg>
   );
 }
 
