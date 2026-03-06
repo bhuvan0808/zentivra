@@ -32,6 +32,8 @@ class RunAgentLog(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
     )
 
+    run = relationship("Run", back_populates="agent_logs")
+
     def __repr__(self) -> str:
         return (
             f"<RunAgentLog(run_id='{self.run_id[:8]}', agent='{self.agent_type}', "

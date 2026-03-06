@@ -90,12 +90,16 @@ async def seed_sources_if_empty():
 
         for rec in records:
             source = Source(
-                source_id=rec["id"],
-                source_name=rec["name"].lower().replace(" ", "_"),
-                display_name=rec["name"],
+                id=rec["id"],
                 agent_type=rec["agent_type"].lower(),
+                name=rec["name"],
                 url=rec["url"],
-                is_enabled=bool(rec.get("enabled", 1)),
+                feed_url=rec.get("feed_url"),
+                css_selectors=rec.get("css_selectors"),
+                keywords=rec.get("keywords"),
+                rate_limit_rpm=rec.get("rate_limit_rpm", 10),
+                crawl_depth=rec.get("crawl_depth", 1),
+                enabled=bool(rec.get("enabled", 1)),
             )
             session.add(source)
 
