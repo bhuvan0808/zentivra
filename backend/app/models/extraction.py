@@ -31,9 +31,6 @@ class Extraction(Base):
         String(50), default="trafilatura"  # trafilatura, beautifulsoup, feedparser
     )
 
-    # Relationships
-    snapshot = relationship("Snapshot", back_populates="extraction")
-
     def __repr__(self) -> str:
         text_preview = (self.extracted_text or "")[:50]
         return (

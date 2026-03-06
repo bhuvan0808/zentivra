@@ -30,3 +30,5 @@ frontend/.env*.local
 *.zip
 
 **/*.db
+**/*.db-wal
+**/*.db-shm

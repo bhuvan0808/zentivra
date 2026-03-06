@@ -66,6 +66,43 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
 
 
+# TODO: Remove this seeding logic before production deployment
+async def seed_sources_if_empty():
+    """Insert default sources from backup JSON when the table is empty."""
+    import json
+    import os
+
+    from sqlalchemy import func, select
+
+    from app.models.source import Source
+
+    backup_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "sources_backup.json")
+    if not os.path.exists(backup_path):
+        return
+
+    async with async_session() as session:
+        count = await session.scalar(select(func.count()).select_from(Source))
+        if count and count > 0:
+            return
+
+        with open(backup_path, "r", encoding="utf-8") as f:
+            records = json.load(f)
+
+        for rec in records:
+            source = Source(
+                source_id=rec["id"],
+                source_name=rec["name"].lower().replace(" ", "_"),
+                display_name=rec["name"],
+                agent_type=rec["agent_type"].lower(),
+                url=rec["url"],
+                is_enabled=bool(rec.get("enabled", 1)),
+            )
+            session.add(source)
+
+        await session.commit()
+# END TODO
+
+
 async def close_db():
     """Dispose of the database engine."""
     await engine.dispose()
