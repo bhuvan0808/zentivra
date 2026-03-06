@@ -1,14 +1,7 @@
-"""
-Snapshot model - Raw content captured from a source URL.
-
-Stores the raw HTML/text fetched from a URL along with its content hash
-for change detection.
-"""
-
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -17,34 +10,35 @@ from app.database import Base
 class Snapshot(Base):
     __tablename__ = "snapshots"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    snapshot_id: Mapped[str] = mapped_column(
+        String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4())
     )
-    source_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("sources.id"), nullable=False, index=True
+    run_trigger_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("run_triggers.id"), nullable=False, index=True
     )
-    run_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("runs.id"), nullable=False, index=True
+    source_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sources.id"), nullable=False, index=True
     )
-    url: Mapped[str] = mapped_column(Text, nullable=False)
-    content_hash: Mapped[str] = mapped_column(
-        String(64), nullable=False, index=True  # SHA256 hex digest
-    )
-    raw_content: Mapped[str | None] = mapped_column(Text, nullable=True)
-    fetched_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
-    http_status: Mapped[int] = mapped_column(Integer, nullable=True)
-    content_changed: Mapped[bool | None] = mapped_column(
-        default=None  # None = first fetch, True = changed, False = unchanged
-    )
+    total_findings: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="created")
 
-    # Relationships
-    source = relationship("Source", back_populates="snapshots")
-    run = relationship("Run", back_populates="snapshots")
-    extraction = relationship(
-        "Extraction", back_populates="snapshot", uselist=False, lazy="selectin"
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+    run_trigger = relationship("RunTrigger", back_populates="snapshots")
+    source = relationship("Source")
+    digest_links = relationship("DigestSnapshot", back_populates="snapshot", lazy="selectin")
 
     def __repr__(self) -> str:
-        return f"<Snapshot(url='{self.url[:50]}', changed={self.content_changed})>"
+        return f"<Snapshot(snapshot_id='{self.snapshot_id}', status='{self.status}')>"
