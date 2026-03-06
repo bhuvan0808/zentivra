@@ -7,19 +7,19 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
-class Digest(Base):
-    __tablename__ = "digests"
+class RunTrigger(Base):
+    __tablename__ = "run_triggers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    digest_id: Mapped[str] = mapped_column(
+    run_trigger_id: Mapped[str] = mapped_column(
         String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4())
     )
-    run_trigger_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("run_triggers.id"), nullable=False, index=True
+    run_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("runs.id"), nullable=False, index=True
     )
-    pdf_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    html_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    status: Mapped[str] = mapped_column(String(30), nullable=False, default="draft")
+    trigger_method: Mapped[str] = mapped_column(String(50), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    is_latest: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -33,8 +33,10 @@ class Digest(Base):
     )
     updated_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
-    run_trigger = relationship("RunTrigger", back_populates="digests")
-    snapshot_links = relationship("DigestSnapshot", back_populates="digest", lazy="selectin")
+    run = relationship("Run", back_populates="triggers")
+    findings = relationship("Finding", back_populates="run_trigger", lazy="selectin")
+    snapshots = relationship("Snapshot", back_populates="run_trigger", lazy="selectin")
+    digests = relationship("Digest", back_populates="run_trigger", lazy="selectin")
 
     def __repr__(self) -> str:
-        return f"<Digest(digest_id='{self.digest_id}', status='{self.status}')>"
+        return f"<RunTrigger(run_trigger_id='{self.run_trigger_id}', status='{self.status}')>"

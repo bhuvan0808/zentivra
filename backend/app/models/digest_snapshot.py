@@ -7,19 +7,19 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
-class Digest(Base):
-    __tablename__ = "digests"
+class DigestSnapshot(Base):
+    __tablename__ = "digest_snapshots"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    digest_id: Mapped[str] = mapped_column(
+    digest_snapshot_id: Mapped[str] = mapped_column(
         String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4())
     )
-    run_trigger_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("run_triggers.id"), nullable=False, index=True
+    digest_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("digests.id"), nullable=False, index=True
     )
-    pdf_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    html_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    status: Mapped[str] = mapped_column(String(30), nullable=False, default="draft")
+    snapshot_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("snapshots.id"), nullable=False, index=True
+    )
 
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -33,8 +33,8 @@ class Digest(Base):
     )
     updated_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
-    run_trigger = relationship("RunTrigger", back_populates="digests")
-    snapshot_links = relationship("DigestSnapshot", back_populates="digest", lazy="selectin")
+    digest = relationship("Digest", back_populates="snapshot_links")
+    snapshot = relationship("Snapshot", back_populates="digest_links")
 
     def __repr__(self) -> str:
-        return f"<Digest(digest_id='{self.digest_id}', status='{self.status}')>"
+        return f"<DigestSnapshot(digest_id={self.digest_id}, snapshot_id={self.snapshot_id})>"
