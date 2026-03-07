@@ -62,11 +62,27 @@ const FEATURES = [
 ];
 
 const STEPS = [
-  { icon: Settings, label: "Configure", detail: "Define run with sources and keywords" },
+  {
+    icon: Settings,
+    label: "Configure",
+    detail: "Define run with sources and keywords",
+  },
   { icon: Zap, label: "Trigger", detail: "Manual or scheduled execution" },
-  { icon: Search, label: "Crawl", detail: "Agents process sources in parallel" },
-  { icon: BarChart3, label: "Analyze", detail: "Findings extracted, snapshots created" },
-  { icon: Send, label: "Report", detail: "Digest generated, optionally emailed" },
+  {
+    icon: Search,
+    label: "Crawl",
+    detail: "Agents process sources in parallel",
+  },
+  {
+    icon: BarChart3,
+    label: "Analyze",
+    detail: "Findings extracted, snapshots created",
+  },
+  {
+    icon: Send,
+    label: "Report",
+    detail: "Digest generated, optionally emailed",
+  },
 ];
 
 const fadeBlur = {
@@ -77,15 +93,22 @@ const fadeBlur = {
 function LandingContent() {
   const searchParams = useSearchParams();
   const redirect = searchParams.get("redirect");
-  const signinHref = redirect ? `/signin?redirect=${encodeURIComponent(redirect)}` : "/signin";
-  const signupHref = redirect ? `/signup?redirect=${encodeURIComponent(redirect)}` : "/signup";
+  const signinHref = redirect
+    ? `/signin?redirect=${encodeURIComponent(redirect)}`
+    : "/signin";
+  const signupHref = redirect
+    ? `/signup?redirect=${encodeURIComponent(redirect)}`
+    : "/signup";
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
+    <div className="relative min-h-screen overflow-clip bg-background text-foreground">
       <LiquidBlob />
 
       {/* ── Ambient glow (gives backdrop-blur something to frost) ── */}
-      <div aria-hidden className="pointer-events-none fixed inset-0 z-1 overflow-hidden">
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 z-1 overflow-hidden"
+      >
         <div className="absolute -top-24 left-1/4 h-120 w-120 rounded-full bg-indigo-500/20 blur-[120px]" />
         <div className="absolute top-1/3 right-[10%] h-100 w-100 rounded-full bg-violet-500/15 blur-[100px]" />
         <div className="absolute bottom-[15%] left-[15%] h-88 w-88 rounded-full bg-purple-500/15 blur-[110px]" />
@@ -93,11 +116,13 @@ function LandingContent() {
       </div>
 
       {/* ── Header ── */}
-      <header className="sticky top-0 z-30 border-b border-white/10 bg-background/40 backdrop-blur-xl backdrop-saturate-150">
+      <header className="sticky top-0 z-40 w-full border-b border-white/10 bg-background/40 backdrop-blur-xl backdrop-saturate-150">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2">
             <Radar className="size-6 text-primary" />
-            <span className="text-lg font-bold tracking-tight font-display">Zentivra</span>
+            <span className="text-lg font-bold tracking-tight font-display">
+              Zentivra
+            </span>
           </Link>
 
           <div className="flex items-center gap-3">
@@ -149,8 +174,15 @@ function LandingContent() {
               <ArrowRight className="ml-1.5 size-4" />
             </Link>
           </Button>
-          <Button variant="outline" size="lg" asChild className="border-white/15 bg-card/30 backdrop-blur-xl backdrop-saturate-150 hover:bg-card/50">
-            <a href="#features" style={{ filter: "blur(0px)" }}>Learn More</a>
+          <Button
+            variant="outline"
+            size="lg"
+            asChild
+            className="border-white/15 bg-card/30 backdrop-blur-xl backdrop-saturate-150 hover:bg-card/50"
+          >
+            <a href="#features" style={{ filter: "blur(0px)" }}>
+              Learn More
+            </a>
           </Button>
         </motion.div>
       </section>
@@ -227,7 +259,10 @@ function LandingContent() {
               transition={{ duration: 0.35, delay: i * 0.1, ease: "easeOut" }}
               className="relative flex flex-col items-center text-center"
             >
-              <div style={{ filter: "blur(0px)" }} className="flex size-14 items-center justify-center rounded-full border-2 border-white/15 bg-card/30 shadow-sm backdrop-blur-xl backdrop-saturate-150">
+              <div
+                style={{ filter: "blur(0px)" }}
+                className="flex size-14 items-center justify-center rounded-full border-2 border-white/15 bg-card/30 shadow-sm backdrop-blur-xl backdrop-saturate-150"
+              >
                 <s.icon className="size-6 text-primary" />
               </div>
               <div className="mt-4 text-xs font-bold uppercase tracking-wider text-primary">
