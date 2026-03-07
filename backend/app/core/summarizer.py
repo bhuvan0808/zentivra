@@ -107,9 +107,23 @@ class Summarizer:
         scores = await summarizer.rank(title, summary, category, source)
     """
 
-    def __init__(self):
-        self._provider = settings.active_llm_provider
+    def __init__(self, provider: str | None = None, model: str | None = None):
+        self._provider = provider or settings.active_llm_provider
+        self._model_override = model
         logger.info("summarizer_init provider=%s", self._provider)
+
+    def _resolve_model(self) -> str:
+        """Return the model name, preferring an explicit override."""
+        if self._model_override:
+            return self._model_override
+        model_map = {
+            "groq": settings.groq_model,
+            "openrouter": settings.openrouter_model,
+            "gemini": settings.gemini_model,
+            "openai": settings.openai_model,
+            "anthropic": settings.anthropic_model,
+        }
+        return model_map.get(self._provider, "")
 
     async def summarize(
         self,
@@ -253,6 +267,41 @@ Write the narrative directly (no preamble, no markdown headers). Keep it concise
 
         return narratives
 
+    async def generate_digest_title(
+        self,
+        findings: list[dict],
+    ) -> str:
+        """Generate a short, descriptive title for the digest based on top findings."""
+        if not findings:
+            return "AI Radar Digest"
+
+        top = findings[:5]
+        bullets = "\n".join(
+            f"- {f.get('title', '')} ({f.get('category', 'other')})"
+            for f in top
+        )
+
+        prompt = f"""Given these top AI findings from today, generate a short digest title (max 8 words).
+The title should capture the most significant theme. No quotes, no punctuation at the end.
+
+FINDINGS:
+{bullets}
+
+Return ONLY the title, nothing else."""
+
+        try:
+            title = (await self._call_llm(prompt)).strip().strip('"\'.')
+            if title and len(title) <= 100:
+                return title
+        except Exception as e:
+            logger.error("digest_title_error error=%s", str(e))
+
+        # Fallback: derive from top finding title
+        top_title = top[0].get("title", "")
+        if top_title:
+            return top_title[:80]
+        return "AI Radar Digest"
+
     async def generate_executive_summary(
         self,
         section_narratives: dict[str, str],
@@ -315,7 +364,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
                 response = await asyncio.wait_for(
                     asyncio.to_thread(
                         client.models.generate_content,
-                        model=settings.gemini_model,
+                        model=self._resolve_model(),
                         contents=prompt,
                     ),
                     timeout=timeout_seconds,
@@ -366,7 +415,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": settings.openai_model,
+                    "model": self._resolve_model(),
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.3,
                     "max_tokens": 2048,
@@ -390,7 +439,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
                     "anthropic-version": "2023-06-01",
                 },
                 json={
-                    "model": settings.anthropic_model,
+                    "model": self._resolve_model(),
                     "max_tokens": 2048,
                     "messages": [{"role": "user", "content": prompt}],
                 },
@@ -412,7 +461,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": settings.groq_model,
+                    "model": self._resolve_model(),
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.3,
                     "max_tokens": 2048,
@@ -437,7 +486,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
                     "X-Title": "Zentivra AI Radar",
                 },
                 json={
-                    "model": settings.openrouter_model,
+                    "model": self._resolve_model(),
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.3,
                     "max_tokens": 2048,

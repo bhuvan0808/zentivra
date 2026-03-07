@@ -22,14 +22,25 @@ class DigestService:
             raise HTTPException(status_code=404, detail="No digests found")
         return digest
 
-    async def get_by_id(self, digest_id: str) -> Digest:
-        digest = await self.repo.get_by_id(digest_id)
+    async def get_by_uuid(self, digest_id: str) -> Digest:
+        digest = await self.repo.get_by_uuid(digest_id)
         if not digest:
             raise HTTPException(status_code=404, detail="Digest not found")
         return digest
 
+    async def get_html_path(self, digest_id: str) -> Path:
+        digest = await self.get_by_uuid(digest_id)
+        if not digest.html_path:
+            raise HTTPException(
+                status_code=404, detail="HTML not yet generated for this digest"
+            )
+        html_path = Path(digest.html_path)
+        if not html_path.exists():
+            raise HTTPException(status_code=404, detail="HTML file not found on disk")
+        return html_path
+
     async def get_pdf_path(self, digest_id: str) -> Path:
-        digest = await self.get_by_id(digest_id)
+        digest = await self.get_by_uuid(digest_id)
         if not digest.pdf_path:
             raise HTTPException(
                 status_code=404, detail="PDF not yet generated for this digest"

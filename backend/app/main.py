@@ -16,39 +16,10 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.config import settings
 from app.database import init_db, close_db, seed_sources_if_empty
 from app.api.router import api_router
-
-
-class RequestLoggingMiddleware:
-    """Raw ASGI middleware for request logging. Does NOT use BaseHTTPMiddleware,
-    which is known to break BackgroundTasks in some Starlette versions."""
-
-    def __init__(self, app: ASGIApp):
-        self.app = app
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send):
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        start = time.perf_counter()
-        status_code = 500
-
-        async def send_wrapper(message):
-            nonlocal status_code
-            if message["type"] == "http.response.start":
-                status_code = message["status"]
-            await send(message)
-
-        await self.app(scope, receive, send_wrapper)
-        duration_ms = (time.perf_counter() - start) * 1000
-        method = scope.get("method", "")
-        path = scope.get("path", "")
-        logger.info("%s %s -> %d (%.0fms)", method, path, status_code, duration_ms)
 
 
 @asynccontextmanager
@@ -64,6 +35,11 @@ async def lifespan(app: FastAPI):
     # TODO: Remove seed call before production deployment
     await seed_sources_if_empty()
     # END TODO
+
+    # Connect to Redis for session caching (graceful fallback if unavailable)
+    from app.core.redis_client import redis_client
+
+    await redis_client.connect()
 
     # Log LLM provider status
     logger.info(
@@ -94,6 +70,7 @@ async def lifespan(app: FastAPI):
     from app.scheduler.scheduler import stop_scheduler
 
     stop_scheduler()
+    await redis_client.close()
     await close_db()
     logger.info("zentivra_shutdown")
 
@@ -117,8 +94,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-app.add_middleware(RequestLoggingMiddleware)
 
 # Include API routes
 app.include_router(api_router)

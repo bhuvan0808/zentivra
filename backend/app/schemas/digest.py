@@ -1,24 +1,22 @@
 """Pydantic schemas for Digest API responses."""
 
-from datetime import date, datetime
+from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DigestResponse(BaseModel):
-    """Schema for digest API responses."""
+    """Schema for digest API responses. Exposes UUIDs, never integer PKs/FKs."""
 
-    id: str
-    run_id: str
-    date: date
-    executive_summary: Optional[str] = None
+    digest_id: str
+    digest_name: Optional[str] = None
+    run_trigger_id: Optional[str] = Field(
+        None, validation_alias="run_trigger_uuid"
+    )
     pdf_path: Optional[str] = None
-    email_sent: bool
-    sent_at: Optional[datetime] = None
-    recipients: Optional[list[str]] = None
-    sections: Optional[dict] = None
-    total_findings: Optional[int] = 0
+    html_path: Optional[str] = None
+    status: str
     created_at: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "populate_by_name": True}

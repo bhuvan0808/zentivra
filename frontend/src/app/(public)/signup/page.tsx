@@ -1,0 +1,225 @@
+"use client";
+
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { ArrowLeft, Radar, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { motion } from "framer-motion";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent } from "@/components/ui/card";
+import { LiquidBlob } from "@/components/liquid-blob";
+import { signup } from "@/lib/api";
+
+function SignUpForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirect") || "/dashboard";
+
+  const [displayName, setDisplayName] = useState("");
+  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  function validate(): boolean {
+    const errors: Record<string, string> = {};
+    if (!displayName.trim()) errors.displayName = "Display name is required";
+    else if (displayName.length > 150)
+      errors.displayName = "Max 150 characters";
+
+    if (!username.trim()) errors.username = "Username is required";
+    else if (username.length < 3) errors.username = "At least 3 characters";
+    else if (username.length > 100) errors.username = "Max 100 characters";
+
+    const emailRegex = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
+    if (!email.trim()) errors.email = "Email is required";
+    else if (!emailRegex.test(email)) errors.email = "Invalid email format";
+
+    if (!password) errors.password = "Password is required";
+    else if (password.length < 8) errors.password = "At least 8 characters";
+
+    if (!confirmPassword)
+      errors.confirmPassword = "Please confirm your password";
+    else if (password !== confirmPassword)
+      errors.confirmPassword = "Passwords do not match";
+
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!validate()) return;
+
+    setLoading(true);
+    const res = await signup({
+      username: username.trim(),
+      email: email.trim(),
+      password,
+      display_name: displayName.trim(),
+    });
+    setLoading(false);
+
+    if (res.ok) {
+      localStorage.setItem("auth_token", res.data.auth_token);
+      localStorage.setItem("user_email", res.data.email);
+      toast.success(`Welcome to the community, ${res.data.display_name}!`);
+      router.push(redirectTo);
+    } else {
+      toast.error(res.error);
+    }
+  }
+
+  return (
+    <div className="relative flex min-h-screen items-center justify-center bg-background px-4">
+      <LiquidBlob />
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 z-1 overflow-hidden"
+      >
+        <div className="absolute -top-24 left-1/4 h-120 w-120 rounded-full bg-indigo-500/20 blur-[120px]" />
+        <div className="absolute top-1/3 right-[10%] h-100 w-100 rounded-full bg-violet-500/15 blur-[100px]" />
+        <div className="absolute bottom-[15%] left-[15%] h-88 w-88 rounded-full bg-purple-500/15 blur-[110px]" />
+      </div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="relative z-10 w-full max-w-sm"
+      >
+        <div className="mb-8 flex flex-col items-center gap-2">
+          <Link
+            href="/"
+            className="mb-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="size-3" />
+            Back to home
+          </Link>
+          <Link href="/" className="flex items-center gap-2">
+            <Radar className="size-7 text-primary" />
+            <span className="text-xl font-bold tracking-tight font-display">
+              Zentivra
+            </span>
+          </Link>
+          <p className="text-sm text-muted-foreground">Create your account</p>
+        </div>
+
+        <Card
+          style={{ filter: "blur(0px)" }}
+          className="border-white/10 bg-card/30 backdrop-blur-xl backdrop-saturate-150 shadow-sm"
+        >
+          <CardContent className="pt-6">
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="space-y-2.5">
+                <Label htmlFor="displayName">Full Name</Label>
+                <Input
+                  id="displayName"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="John Doe"
+                  autoComplete="name"
+                  autoFocus
+                />
+                {fieldErrors.displayName && (
+                  <p className="field-error">{fieldErrors.displayName}</p>
+                )}
+              </div>
+
+              <div className="space-y-2.5">
+                <Label htmlFor="username">Username</Label>
+                <Input
+                  id="username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="john_doe"
+                  autoComplete="username"
+                />
+                {fieldErrors.username && (
+                  <p className="field-error">{fieldErrors.username}</p>
+                )}
+              </div>
+
+              <div className="space-y-2.5">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="john@example.com"
+                  autoComplete="email"
+                />
+                {fieldErrors.email && (
+                  <p className="field-error">{fieldErrors.email}</p>
+                )}
+              </div>
+
+              <div className="space-y-2.5">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete="new-password"
+                />
+                {fieldErrors.password && (
+                  <p className="field-error">{fieldErrors.password}</p>
+                )}
+              </div>
+
+              <div className="space-y-2.5">
+                <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete="new-password"
+                />
+                {fieldErrors.confirmPassword && (
+                  <p className="field-error">{fieldErrors.confirmPassword}</p>
+                )}
+              </div>
+
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading && <Loader2 className="mr-1.5 size-4 animate-spin" />}
+                {loading ? "Creating account..." : "Create Account"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        <p className="mt-6 text-center text-sm text-muted-foreground">
+          Already have an account?{" "}
+          <Link
+            href={
+              redirectTo !== "/dashboard"
+                ? `/signin?redirect=${encodeURIComponent(redirectTo)}`
+                : "/signin"
+            }
+            className="font-medium text-primary hover:underline"
+          >
+            Sign in
+          </Link>
+        </p>
+      </motion.div>
+    </div>
+  );
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense>
+      <SignUpForm />
+    </Suspense>
+  );
+}

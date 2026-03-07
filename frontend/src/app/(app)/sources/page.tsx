@@ -62,14 +62,11 @@ const AGENT_TYPE_OPTIONS: { value: AgentType; label: string }[] = [
 ];
 
 const EMPTY_FORM = {
-  name: "",
+  source_name: "",
+  display_name: "",
   agent_type: "competitor" as AgentType,
   url: "",
-  feed_url: "",
-  keywords: "",
-  rate_limit_rpm: 10,
-  crawl_depth: 1,
-  enabled: true,
+  is_enabled: true,
 };
 
 export default function SourcesPage() {
@@ -87,7 +84,10 @@ export default function SourcesPage() {
   const [deleting, setDeleting] = useState(false);
 
   const fetchSources = useCallback(async () => {
-    const params = filterType !== "all" ? { agent_type: filterType as AgentType } : undefined;
+    const params =
+      filterType !== "all"
+        ? { agent_type: filterType as AgentType }
+        : undefined;
     const res = await getSources(params);
     if (res.ok) {
       setSources(res.data);
@@ -111,32 +111,21 @@ export default function SourcesPage() {
   function openEdit(source: Source) {
     setEditingSource(source);
     setForm({
-      name: source.name,
+      source_name: source.source_name,
+      display_name: source.display_name,
       agent_type: source.agent_type,
       url: source.url,
-      feed_url: source.feed_url ?? "",
-      keywords: source.keywords.join(", "),
-      rate_limit_rpm: source.rate_limit_rpm,
-      crawl_depth: source.crawl_depth,
-      enabled: source.enabled,
+      is_enabled: source.is_enabled,
     });
     setErrors([]);
     setDialogOpen(true);
   }
 
   async function handleSave() {
-    const keywordsArr = form.keywords
-      .split(",")
-      .map((k) => k.trim())
-      .filter(Boolean);
-
     const validationErrors = validateSourceForm({
-      name: form.name,
+      source_name: form.source_name,
+      display_name: form.display_name,
       url: form.url,
-      feed_url: form.feed_url,
-      rate_limit_rpm: form.rate_limit_rpm,
-      crawl_depth: form.crawl_depth,
-      keywords: keywordsArr,
     });
 
     if (validationErrors.length > 0) {
@@ -145,36 +134,48 @@ export default function SourcesPage() {
     }
 
     setSaving(true);
-    const payload: SourceCreate = {
-      name: form.name,
-      agent_type: form.agent_type,
-      url: form.url,
-      feed_url: form.feed_url || null,
-      keywords: keywordsArr,
-      rate_limit_rpm: form.rate_limit_rpm,
-      crawl_depth: form.crawl_depth,
-      enabled: form.enabled,
-    };
 
-    const res = editingSource
-      ? await updateSource(editingSource.id, payload)
-      : await createSource(payload);
-
-    setSaving(false);
-
-    if (res.ok) {
-      toast.success(editingSource ? "Source updated." : "Source created successfully.");
-      setDialogOpen(false);
-      fetchSources();
+    if (editingSource) {
+      const res = await updateSource(editingSource.source_id, {
+        source_name: form.source_name,
+        display_name: form.display_name,
+        agent_type: form.agent_type,
+        url: form.url,
+        is_enabled: form.is_enabled,
+      });
+      setSaving(false);
+      if (res.ok) {
+        toast.success("Source updated.");
+        setDialogOpen(false);
+        fetchSources();
+      } else {
+        toast.error(res.error);
+      }
     } else {
-      toast.error(res.error);
+      const payload: SourceCreate = {
+        source_name: form.source_name,
+        display_name: form.display_name,
+        agent_type: form.agent_type,
+        url: form.url,
+      };
+      const res = await createSource(payload);
+      setSaving(false);
+      if (res.ok) {
+        toast.success("Source created successfully.");
+        setDialogOpen(false);
+        fetchSources();
+      } else {
+        toast.error(res.error);
+      }
     }
   }
 
   async function handleToggleEnabled(source: Source) {
-    const res = await updateSource(source.id, { enabled: !source.enabled });
+    const res = await updateSource(source.source_id, {
+      is_enabled: !source.is_enabled,
+    });
     if (res.ok) {
-      toast.success(`Source ${res.data.enabled ? "enabled" : "disabled"}.`);
+      toast.success(`Source ${res.data.is_enabled ? "enabled" : "disabled"}.`);
       fetchSources();
     } else {
       toast.error(res.error);
@@ -184,7 +185,7 @@ export default function SourcesPage() {
   async function handleDelete() {
     if (!deleteTarget) return;
     setDeleting(true);
-    const res = await deleteSource(deleteTarget.id);
+    const res = await deleteSource(deleteTarget.source_id);
     setDeleting(false);
     if (res.ok) {
       toast.success("Source deleted.");
@@ -202,7 +203,10 @@ export default function SourcesPage() {
   if (loading) {
     return (
       <div>
-        <PageHeader title="Sources" description="Manage crawl sources for each agent." />
+        <PageHeader
+          title="Sources"
+          description="Manage crawl sources for each agent."
+        />
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-14 w-full" />
@@ -244,25 +248,34 @@ export default function SourcesPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-12 text-center">#</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Agent Type</TableHead>
                 <TableHead className="hidden md:table-cell">URL</TableHead>
                 <TableHead>Enabled</TableHead>
-                <TableHead className="hidden sm:table-cell">Rate Limit</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {sources.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                    No sources configured. Click &ldquo;Add Source&rdquo; to get started.
+                  <TableCell
+                    colSpan={6}
+                    className="text-center py-8 text-muted-foreground"
+                  >
+                    No sources configured. Click &ldquo;Add New Source&rdquo; to
+                    get started.
                   </TableCell>
                 </TableRow>
               ) : (
                 sources.map((source, i) => (
-                  <AnimatedRow key={source.id} index={i}>
-                    <TableCell className="font-medium">{source.name}</TableCell>
+                  <AnimatedRow key={source.source_id} index={i}>
+                    <TableCell className="text-center text-xs text-muted-foreground font-mono">
+                      {i + 1}
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      {source.display_name}
+                    </TableCell>
                     <TableCell>
                       <StatusBadge variant="neutral">
                         {source.agent_type.replace("_", " ")}
@@ -281,12 +294,9 @@ export default function SourcesPage() {
                     </TableCell>
                     <TableCell>
                       <Switch
-                        checked={source.enabled}
+                        checked={source.is_enabled}
                         onCheckedChange={() => handleToggleEnabled(source)}
                       />
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell font-mono text-xs">
-                      {source.rate_limit_rpm} rpm
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
@@ -328,23 +338,38 @@ export default function SourcesPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-5 py-2 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
+          <div className="grid gap-6 py-2 sm:grid-cols-2">
+            <div className="space-y-2.5">
+              <Label htmlFor="source_name">Source Name (slug)</Label>
               <Input
-                id="name"
-                value={form.name}
+                id="source_name"
+                value={form.source_name}
                 onChange={(e) =>
-                  setForm({ ...form, name: e.target.value })
+                  setForm({ ...form, source_name: e.target.value })
                 }
-                placeholder="e.g. OpenAI Blog"
+                placeholder="e.g. openai_blog"
               />
-              {fieldError("name") && (
-                <p className="field-error">{fieldError("name")}</p>
+              {fieldError("source_name") && (
+                <p className="field-error">{fieldError("source_name")}</p>
               )}
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2.5">
+              <Label htmlFor="display_name">Display Name</Label>
+              <Input
+                id="display_name"
+                value={form.display_name}
+                onChange={(e) =>
+                  setForm({ ...form, display_name: e.target.value })
+                }
+                placeholder="e.g. OpenAI Blog"
+              />
+              {fieldError("display_name") && (
+                <p className="field-error">{fieldError("display_name")}</p>
+              )}
+            </div>
+
+            <div className="space-y-2.5">
               <Label htmlFor="agent_type">Agent Type</Label>
               <Select
                 value={form.agent_type}
@@ -365,14 +390,12 @@ export default function SourcesPage() {
               </Select>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               <Label htmlFor="url">URL</Label>
               <Input
                 id="url"
                 value={form.url}
-                onChange={(e) =>
-                  setForm({ ...form, url: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, url: e.target.value })}
                 placeholder="https://example.com/blog"
               />
               {fieldError("url") && (
@@ -380,96 +403,20 @@ export default function SourcesPage() {
               )}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="feed_url">Feed URL (optional)</Label>
-              <Input
-                id="feed_url"
-                value={form.feed_url}
-                onChange={(e) =>
-                  setForm({ ...form, feed_url: e.target.value })
-                }
-                placeholder="https://example.com/rss.xml"
-              />
-              {fieldError("feed_url") && (
-                <p className="field-error">{fieldError("feed_url")}</p>
-              )}
-            </div>
-
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="keywords">Keywords (comma-separated)</Label>
-              <Input
-                id="keywords"
-                value={form.keywords}
-                onChange={(e) =>
-                  setForm({ ...form, keywords: e.target.value })
-                }
-                placeholder="gpt, api, release"
-              />
-              {fieldError("keywords") && (
-                <p className="field-error">{fieldError("keywords")}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="rate_limit">Rate Limit (rpm)</Label>
-              <Input
-                id="rate_limit"
-                type="number"
-                min={1}
-                max={60}
-                value={form.rate_limit_rpm}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    rate_limit_rpm: Number(e.target.value),
-                  })
-                }
-              />
-              {fieldError("rate_limit_rpm") && (
-                <p className="field-error">
-                  {fieldError("rate_limit_rpm")}
-                </p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="crawl_depth">Crawl Depth</Label>
-              <Input
-                id="crawl_depth"
-                type="number"
-                min={1}
-                max={5}
-                value={form.crawl_depth}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    crawl_depth: Number(e.target.value),
-                  })
-                }
-              />
-              {fieldError("crawl_depth") && (
-                <p className="field-error">
-                  {fieldError("crawl_depth")}
-                </p>
-              )}
-            </div>
-
             <div className="flex items-center gap-2 pt-1 sm:col-span-2">
               <Switch
-                id="enabled"
-                checked={form.enabled}
+                id="is_enabled"
+                checked={form.is_enabled}
                 onCheckedChange={(checked) =>
-                  setForm({ ...form, enabled: checked })
+                  setForm({ ...form, is_enabled: checked })
                 }
               />
-              <Label htmlFor="enabled">Enabled</Label>
+              <Label htmlFor="is_enabled">Enabled</Label>
             </div>
           </div>
 
           <DialogFooter className="pt-2">
-            <Button
-              variant="outline"
-              onClick={() => setDialogOpen(false)}
-            >
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
               Cancel
             </Button>
             <Button onClick={handleSave} disabled={saving}>
@@ -492,8 +439,8 @@ export default function SourcesPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Source</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently remove &ldquo;{deleteTarget?.name}&rdquo;.
-              This action cannot be undone.
+              This will permanently remove &ldquo;{deleteTarget?.display_name}
+              &rdquo;. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

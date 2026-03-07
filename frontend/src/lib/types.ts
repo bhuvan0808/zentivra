@@ -1,65 +1,139 @@
-export type AgentType = "competitor" | "model_provider" | "research" | "hf_benchmark";
+export type AgentType =
+  | "competitor"
+  | "model_provider"
+  | "research"
+  | "hf_benchmark";
 
-export type FindingCategory = "models" | "apis" | "pricing" | "benchmarks" | "safety" | "tooling" | "research" | "other";
+export type FindingCategory =
+  | "models"
+  | "apis"
+  | "pricing"
+  | "benchmarks"
+  | "safety"
+  | "tooling"
+  | "research"
+  | "other";
 
-export type RunStatus = "pending" | "running" | "completed" | "failed" | "partial";
+export type RunStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "partial";
 
 export interface Source {
-  readonly id: string;
-  readonly name: string;
+  readonly source_id: string;
+  readonly source_name: string;
+  readonly display_name: string;
   readonly agent_type: AgentType;
   readonly url: string;
-  readonly feed_url: string | null;
-  readonly css_selectors: Record<string, string> | null;
-  readonly keywords: string[];
-  readonly rate_limit_rpm: number;
-  readonly crawl_depth: number;
-  readonly enabled: boolean;
+  readonly is_enabled: boolean;
   readonly created_at: string;
   readonly updated_at: string;
 }
 
 export interface SourceCreate {
-  name: string;
+  source_name: string;
+  display_name: string;
   agent_type: AgentType;
   url: string;
-  feed_url?: string | null;
-  css_selectors?: Record<string, string> | null;
-  keywords?: string[];
-  rate_limit_rpm?: number;
-  crawl_depth?: number;
-  enabled?: boolean;
 }
 
 export interface SourceUpdate {
-  name?: string;
+  source_name?: string;
+  display_name?: string;
   agent_type?: AgentType;
   url?: string;
-  feed_url?: string | null;
-  css_selectors?: Record<string, string> | null;
-  keywords?: string[];
-  rate_limit_rpm?: number;
-  crawl_depth?: number;
-  enabled?: boolean;
+  is_enabled?: boolean;
 }
 
 export interface Run {
-  readonly id: string;
-  readonly started_at: string;
-  readonly completed_at: string | null;
-  readonly status: RunStatus;
-  readonly agent_statuses: Record<string, string> | null;
-  readonly total_findings: number;
-  readonly error_log: string | null;
-  readonly triggered_by: string;
+  readonly run_id: string;
+  readonly run_name: string;
+  readonly description: string | null;
+  readonly enable_pdf_gen: boolean;
+  readonly enable_email_alert: boolean;
+  readonly email_recipients: string[] | null;
+  readonly sources: string[];
+  readonly crawl_frequency: string | null;
+  readonly crawl_depth: number;
+  readonly keywords: string[] | null;
+  readonly is_enabled: boolean;
+  readonly created_at: string;
+  readonly updated_at: string;
 }
 
+export interface RunCreate {
+  run_name: string;
+  description?: string;
+  enable_pdf_gen?: boolean;
+  enable_email_alert?: boolean;
+  email_recipients?: string[];
+  sources: string[];
+  crawl_frequency?: string;
+  crawl_depth: number;
+  keywords?: string[];
+  trigger_on_create?: boolean;
+}
+
+export interface RunUpdate {
+  run_name?: string;
+  description?: string;
+  enable_pdf_gen?: boolean;
+  enable_email_alert?: boolean;
+  email_recipients?: string[];
+  sources?: string[];
+  crawl_frequency?: string;
+  crawl_depth?: number;
+  keywords?: string[];
+  is_enabled?: boolean;
+}
+
+export interface RunTriggerPayload {
+  trigger_method?: string;
+  max_sources_per_agent?: number;
+}
+
+export interface RunTriggerResponse {
+  readonly run_trigger_id: string;
+  readonly run_id: string;
+  readonly message: string;
+  readonly status: string;
+}
+
+export interface RunTrigger {
+  readonly run_trigger_id: string;
+  readonly run_id: string;
+  readonly trigger_method: string;
+  readonly status: RunStatus;
+  readonly is_latest: boolean;
+  readonly created_at: string;
+  readonly updated_at: string;
+  readonly findings_count: number;
+  readonly snapshots_count: number;
+  readonly digest_id?: string | null;
+  readonly digest_status?: string | null;
+  readonly pdf_url?: string | null;
+  readonly html_url?: string | null;
+}
+
+export interface Snapshot {
+  readonly snapshot_id: string;
+  readonly source_name: string;
+  readonly total_findings: number;
+  readonly summary: string | null;
+  readonly status: string;
+  readonly created_at: string;
+}
+
+/** @deprecated Use RunTriggerPayload + triggerRunById instead */
 export interface TriggerRunResponse {
   readonly run_id: string;
   readonly message: string;
   readonly status: string;
 }
 
+/** @deprecated Use RunTriggerPayload + triggerRunById instead */
 export interface RunTriggerRequest {
   agent_types?: AgentType[];
   source_ids?: string[];
@@ -67,91 +141,30 @@ export interface RunTriggerRequest {
   max_sources_per_agent?: number;
 }
 
-export interface RunAgentSummary {
-  readonly agent_type: AgentType;
-  readonly status: string;
-  readonly findings_count: number;
-  readonly urls_crawled: number;
-  readonly last_activity_at: string | null;
-}
-
-export interface RunAgentActivity {
-  readonly source_name: string;
-  readonly url: string;
-  readonly http_status: number | null;
-  readonly content_changed: boolean | null;
-  readonly fetched_at: string;
-}
-
-export interface RunAgentLog {
-  readonly id: string;
-  readonly agent_type: AgentType;
-  readonly level: string;
-  readonly message: string;
-  readonly context: Record<string, unknown> | null;
-  readonly created_at: string;
-}
-
 export interface Finding {
-  readonly id: string;
-  readonly run_id: string;
-  readonly source_id: string;
-  readonly title: string;
-  readonly date_detected: string;
-  readonly source_url: string;
-  readonly publisher: string | null;
-  readonly category: FindingCategory;
-  readonly summary_short: string | null;
-  readonly summary_long: string | null;
-  readonly why_it_matters: string | null;
-  readonly evidence: { claims: string[] } | null;
+  readonly finding_id: string;
+  readonly content: string | null;
+  readonly summary: string | null;
+  readonly run_trigger_id: string | null;
+  readonly src_url: string;
+  readonly category: FindingCategory | null;
   readonly confidence: number;
-  readonly tags: string[] | null;
-  readonly entities: {
-    companies: string[];
-    models: string[];
-    datasets: string[];
-  } | null;
-  readonly impact_score: number;
-  readonly is_duplicate: boolean;
-  readonly cluster_id: string | null;
+  readonly created_at: string;
 }
 
 export interface FindingsStats {
   readonly total_findings: number;
   readonly by_category: Record<string, number>;
-  readonly avg_impact_score: number;
 }
 
 export interface Digest {
-  readonly id: string;
-  readonly run_id: string;
-  readonly date: string;
-  readonly executive_summary: string;
-  readonly pdf_path: string;
-  readonly email_sent: boolean;
-  readonly sent_at: string | null;
-  readonly recipients: string[] | null;
-  readonly sections?: Record<string, { count: number; narrative: string }> | null;
-  readonly total_findings: number;
-  readonly created_at: string;
-}
-
-export interface DisruptiveArticleRequest {
-  url: string;
-  recipient_email: string;
-  agent_types?: AgentType[];
-  title?: string;
-}
-
-export interface DisruptiveArticleResponse {
-  readonly report_id: string;
-  readonly findings_count: number;
-  readonly email_sent: boolean;
+  readonly digest_id: string;
+  readonly digest_name: string | null;
+  readonly run_trigger_id: string | null;
   readonly pdf_path: string | null;
-  readonly pdf_download_url: string | null;
-  readonly agents_used: AgentType[];
-  readonly message: string;
+  readonly html_path: string | null;
+  readonly status: string;
+  readonly created_at: string;
 }
 
 export interface HealthStatus {
@@ -192,16 +205,98 @@ export type ApiResult<T> =
   | { readonly ok: true; readonly data: T }
   | { readonly ok: false; readonly error: string };
 
+// ── Auth ──
+
+export interface AuthResponse {
+  readonly user_id: string;
+  readonly username: string;
+  readonly email: string;
+  readonly display_name: string;
+  readonly auth_token: string;
+  readonly expires_at: string;
+}
+
+export interface AuthUser {
+  readonly user_id: string;
+  readonly username: string;
+  readonly email: string;
+  readonly display_name: string;
+  readonly last_login: string | null;
+  readonly created_at: string;
+}
+
+export interface LoginPayload {
+  username: string;
+  password: string;
+}
+
+export interface SignupPayload {
+  username: string;
+  email: string;
+  password: string;
+  display_name: string;
+}
+
 export interface FindingsQueryParams {
   page?: number;
   page_size?: number;
   category?: FindingCategory;
   min_confidence?: number;
-  search?: string;
-  include_duplicates?: boolean;
 }
 
 export interface SourcesQueryParams {
   agent_type?: AgentType;
   enabled?: boolean;
+}
+
+// ── Execution Logs ──
+
+export interface AgentLogSummary {
+  readonly agent_name: string;
+  readonly file_size: number;
+  readonly line_count: number;
+}
+
+export interface LogEntry {
+  readonly ts: string;
+  readonly trigger_id: string;
+  readonly level: string;
+  readonly agent: string | null;
+  readonly step: string;
+  readonly event: string;
+  readonly [key: string]: unknown;
+}
+
+export interface LogPreview {
+  readonly agent_name: string;
+  readonly total_lines: number;
+  readonly preview: LogEntry[];
+}
+
+// ── Dashboard ──
+
+export interface DashboardStats {
+  readonly total_findings: number;
+  readonly total_sources: number;
+  readonly by_category: Record<string, number>;
+  readonly by_agent_type: Record<string, number>;
+  readonly confidence_distribution: {
+    readonly high: number;
+    readonly medium: number;
+    readonly low: number;
+  };
+  readonly recent_triggers: Array<{
+    readonly run_trigger_id: string;
+    readonly run_name: string;
+    readonly status: string;
+    readonly findings_count: number;
+    readonly snapshots_count: number;
+    readonly created_at: string | null;
+  }>;
+  readonly findings_timeline: Array<{
+    readonly trigger_id: string;
+    readonly date: string;
+    readonly full_date: string;
+    readonly count: number;
+  }>;
 }

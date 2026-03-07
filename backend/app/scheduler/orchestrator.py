@@ -1,16 +1,21 @@
 """
-Orchestrator - Run Manager for the full pipeline.
+Orchestrator - Coordinates the full pipeline for a triggered run.
 
-Manages the end-to-end daily run:
-1. Set run status and agent status map
-2. Launch selected agents in parallel
-3. Compile digest and generate PDF
-4. Send email (optional)
-5. Persist digest and final run status
+Pipeline layers (each is a distinct step):
+1. Source Resolution   - resolve source UUIDs from Run config to Source objects
+2. Parallel Agents     - fetch -> extract -> preprocess -> AI summarize per source URL
+3. Finding Persistence - write Finding records to DB
+4. Snapshot Generation - write per-source execution summary to DB
+5. Digest Compilation  - aggregate, dedup, rank findings
+6. PDF Generation      - render PDF + HTML from digest
+7. Email Sending       - send digest email (conditional)
+
+Execution state lives on RunTrigger, NOT on Run (which is pure config).
 """
 
 import asyncio
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import select
@@ -25,13 +30,16 @@ from app.database import async_session
 from app.digest.compiler import DigestCompiler
 from app.digest.pdf_renderer import PDFRenderer
 from app.models.digest import Digest
-from app.models.run_agent_log import RunAgentLog
-from app.models.run import Run, RunStatus
+from app.models.digest_snapshot import DigestSnapshot
+from app.models.finding import Finding
+from app.models.run import Run
+from app.models.run_trigger import RunTrigger
+from app.models.snapshot import Snapshot
 from app.models.source import AgentType, Source
 from app.notifications.email_service import EmailService
 from app.utils.logger import logger
+from app.utils.run_logger import RunLogger
 
-# Agent type to agent class mapping
 AGENT_MAP = {
     AgentType.COMPETITOR: CompetitorWatcher,
     AgentType.MODEL_PROVIDER: ModelProviderWatcher,
@@ -39,538 +47,653 @@ AGENT_MAP = {
     AgentType.HF_BENCHMARK: HFBenchmarkTracker,
 }
 
+# Resolved log directory (relative to backend/)
+LOG_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "logs"
+
 
 class Orchestrator:
-    """
-    Pipeline orchestrator that manages the full daily run.
-
-    Usage:
-        orchestrator = Orchestrator()
-        await orchestrator.execute_run(run_id)
-    """
 
     def __init__(self):
         self.digest_compiler = DigestCompiler()
         self.pdf_renderer = PDFRenderer()
         self.email_service = EmailService()
 
-    async def execute_run(
+    async def execute(
         self,
-        run_id: str,
-        agent_types: Optional[list[str]] = None,
-        source_ids: Optional[list[str]] = None,
-        recipients_override: Optional[list[str]] = None,
-        max_sources_per_agent: Optional[int] = None,
+        run_trigger_id: int,
+        run_id: int,
+        options: dict | None = None,
     ):
-        """
-        Execute a complete pipeline run.
-
-        Optional filters allow cost-controlled/manual test runs.
-        """
-        logger.info("pipeline_run_start run_id=%s", run_id[:8])
-        selected_agent_types = self._normalize_agent_types(agent_types)
-        selected_source_ids = set(source_ids or [])
-        recipients = self._normalize_recipients(recipients_override)
+        """Entry point called by the background task."""
+        opts = options or {}
+        logger.info(
+            "pipeline_start run_trigger_id=%s run_id=%s", run_trigger_id, run_id
+        )
 
         async with async_session() as db:
-            run = await self._get_run(run_id, db)
-            if not run:
-                logger.error("run_not_found run_id=%s", run_id)
+            trigger = await db.get(RunTrigger, run_trigger_id)
+            run = await db.get(Run, run_id)
+
+            if not trigger or not run:
+                logger.error(
+                    "pipeline_abort trigger=%s run=%s",
+                    run_trigger_id,
+                    run_id,
+                )
                 return
 
-            run.status = RunStatus.RUNNING
-            run.started_at = datetime.now(timezone.utc)
-            run.agent_statuses = self._build_initial_agent_statuses(selected_agent_types)
+            # ── Initialise per-trigger run logger ───────────────
+            run_log = RunLogger(trigger.run_trigger_id, LOG_DIR)
+            run_log.info(
+                "pipeline_start",
+                step="pipeline",
+                run_trigger_id=trigger.run_trigger_id,
+                run_id=run.run_id,
+            )
+
+            # ── Mark running ────────────────────────────────────
+            trigger.status = "running"
             await db.commit()
+            run_log.info("status_changed", step="pipeline", status="running")
 
             try:
-                # Phase 1: Run selected agents
-                all_findings = await self._run_agents(
-                    run_id=run_id,
-                    db=db,
-                    selected_agent_types=selected_agent_types,
-                    selected_source_ids=selected_source_ids or None,
-                    max_sources_per_agent=max_sources_per_agent,
-                )
-
-                # ── Zero-findings fast-path ──
-                # If no new content was detected, reuse the latest existing
-                # digest PDF instead of generating an empty one.  This saves
-                # LLM costs and still delivers useful intel to the recipient.
-                if not all_findings:
-                    reused = await self._try_reuse_latest_digest(
-                        run_id=run_id,
-                        db=db,
-                        run=run,
-                        recipients=recipients,
-                    )
-                    if reused:
-                        await db.commit()
-                        return
-                    # else: no existing digest to reuse → fall through and
-                    # generate a (minimal) new digest so the run row is valid.
-
-                # Phase 2: Compile digest
-                digest_data = await self.digest_compiler.compile(run_id, all_findings, db)
-
-                # Phase 3: Generate PDF (always, even for zero-findings runs)
-                pdf_path: Optional[str] = None
+                # ── 1. Source resolution ────────────────────────────
                 try:
-                    pdf_path = self.pdf_renderer.render(digest_data)
-                except Exception as e:
-                    logger.error("pdf_generation_error error=%s", str(e))
+                    sources_by_type = await self._resolve_sources(run, db, opts)
+                except Exception as exc:
+                    logger.error("source_resolution_error err=%s", str(exc)[:300])
+                    run_log.error(
+                        "source_resolution_error",
+                        step="source_resolution",
+                        error=str(exc)[:300],
+                    )
+                    trigger.status = "failed"
+                    await db.commit()
+                    run_log.info("status_changed", step="pipeline", status="failed")
+                    run_log.close()
+                    return
 
-                # Phase 4: Send email (optional)
-                email_sent = False
-                effective_recipients = (
-                    recipients if recipients is not None else settings.email_recipient_list
+                total_source_count = sum(len(v) for v in sources_by_type.values())
+                logger.info(
+                    "sources_resolved types=%d total_sources=%d",
+                    len(sources_by_type),
+                    total_source_count,
                 )
-                if pdf_path and effective_recipients and settings.has_email_configured:
-                    try:
-                        today = datetime.now().strftime("%Y-%m-%d")
-                        subject = f"Zentivra AI Radar - {today}"
-                        email_sent = await self.email_service.send_digest_email(
-                            recipients=effective_recipients,
-                            subject=subject,
-                            executive_summary=digest_data.get("executive_summary", ""),
-                            pdf_path=pdf_path,
+                run_log.info(
+                    "sources_resolved",
+                    step="source_resolution",
+                    agent_types=len(sources_by_type),
+                    total_sources=total_source_count,
+                )
+
+                if not sources_by_type:
+                    trigger.status = "completed_empty"
+                    await db.commit()
+                    run_log.info(
+                        "pipeline_complete_no_sources",
+                        step="pipeline",
+                        status="completed_empty",
+                    )
+                    logger.info("pipeline_complete_no_sources")
+                    run_log.close()
+                    return
+
+                # ── 2. Parallel agent execution ─────────────────────
+                run_log.info(
+                    "agents_starting",
+                    step="pipeline",
+                    agent_count=len(sources_by_type),
+                )
+                agent_results = await self._run_agents_parallel(
+                    sources_by_type=sources_by_type,
+                    run_config=run,
+                    run_log=run_log,
+                )
+
+                # ── 3. Consume structured agent results ─────────────
+                all_finding_dicts: list[dict] = []
+                agent_statuses: dict[str, str] = {}
+
+                for agent_name, result, error in agent_results:
+                    if error:
+                        logger.error(
+                            "agent_failed agent=%s err=%s",
+                            agent_name,
+                            str(error)[:300],
                         )
-                    except Exception as e:
-                        logger.error("email_send_error error=%s", str(e))
+                        run_log.info(
+                            "agent_failed",
+                            step="pipeline",
+                            agent=agent_name,
+                            error=str(error)[:300],
+                        )
+                        agent_statuses[agent_name] = "failed"
+                        continue
 
-                # Phase 5: Save digest record
-                digest = Digest(
-                    run_id=run_id,
-                    date=datetime.now().date(),
-                    executive_summary=digest_data.get("executive_summary", ""),
-                    pdf_path=pdf_path,
-                    email_sent=email_sent,
-                    sent_at=datetime.now(timezone.utc) if email_sent else None,
-                    recipients=effective_recipients if email_sent else None,
-                    sections={
-                        name: {
-                            "count": data.get("count", 0),
-                            "narrative": data.get("narrative", ""),
-                        }
-                        for name, data in digest_data.get("sections", {}).items()
-                    },
-                    total_findings=digest_data.get("total_findings", 0),
-                )
-                db.add(digest)
+                    findings = result.get("findings", [])
+                    errors = result.get("errors", [])
+                    attempted = result.get("urls_attempted", 0)
+                    succeeded = result.get("urls_succeeded", 0)
 
-                # Phase 6: Finalize run status
-                has_errors = any(
-                    str(status).startswith("failed")
-                    for status in (run.agent_statuses or {}).values()
-                )
-                run.status = RunStatus.PARTIAL if has_errors else RunStatus.COMPLETED
-                run.completed_at = datetime.now(timezone.utc)
-                run.total_findings = digest_data.get("total_findings", 0)
-                run.error_log = None if run.status != RunStatus.PARTIAL else run.error_log
+                    if attempted == 0:
+                        agent_statuses[agent_name] = "completed_empty"
+                    elif succeeded == 0 and errors:
+                        agent_statuses[agent_name] = "failed"
+                    elif errors:
+                        agent_statuses[agent_name] = "partial"
+                    else:
+                        agent_statuses[agent_name] = "completed"
+
+                    all_finding_dicts.extend(findings)
+
+                    run_log.info(
+                        "agent_result",
+                        step="pipeline",
+                        agent=agent_name,
+                        status=agent_statuses[agent_name],
+                        findings=len(findings),
+                        errors=len(errors),
+                    )
+
+                    if errors:
+                        logger.warning(
+                            "agent_errors agent=%s count=%d first=%s",
+                            agent_name,
+                            len(errors),
+                            errors[0][:200],
+                        )
+
+                # ── 4. Finding persistence ──────────────────────────
+                try:
+                    await self._persist_findings(
+                        all_finding_dicts,
+                        trigger.id,
+                        db,
+                    )
+                    run_log.info(
+                        "findings_persisted",
+                        step="finding_persist",
+                        count=len(all_finding_dicts),
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "finding_persistence_error err=%s",
+                        str(exc)[:300],
+                    )
+                    run_log.error(
+                        "finding_persistence_error",
+                        step="finding_persist",
+                        error=str(exc)[:300],
+                    )
+                    trigger.status = "failed"
+                    await db.commit()
+                    run_log.info("status_changed", step="pipeline", status="failed")
+                    run_log.close()
+                    return
+
+                # ── 5. Snapshot generation ──────────────────────────
+                snapshot_ids: list[int] = []
+                try:
+                    snapshot_ids = await self._create_snapshots(
+                        sources_by_type,
+                        all_finding_dicts,
+                        agent_statuses,
+                        trigger.id,
+                        db,
+                    )
+                    run_log.info(
+                        "snapshots_created",
+                        step="snapshot_create",
+                        count=len(snapshot_ids),
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "snapshot_creation_error err=%s",
+                        str(exc)[:300],
+                    )
+                    run_log.error(
+                        "snapshot_creation_error",
+                        step="snapshot_create",
+                        error=str(exc)[:300],
+                    )
+
+                # ── 6. Determine trigger status from agent outcomes ─
+                statuses = set(agent_statuses.values())
+
+                if all(s == "failed" for s in agent_statuses.values()):
+                    trigger.status = "failed"
+                elif "failed" in statuses or "partial" in statuses:
+                    trigger.status = "partial"
+                elif not all_finding_dicts:
+                    trigger.status = "completed_empty"
+                else:
+                    trigger.status = "completed"
 
                 await db.commit()
+                run_log.info(
+                    "status_changed",
+                    step="pipeline",
+                    status=trigger.status,
+                )
 
                 logger.info(
-                    "pipeline_run_complete run_id=%s status=%s findings=%d pdf=%s email=%s",
-                    run_id[:8],
-                    run.status,
-                    run.total_findings,
-                    bool(pdf_path),
-                    email_sent,
+                    "agents_done status=%s findings=%d agent_statuses=%s",
+                    trigger.status,
+                    len(all_finding_dicts),
+                    agent_statuses,
                 )
 
-            except Exception as e:
-                logger.error("pipeline_run_error run_id=%s error=%s", run_id[:8], str(e))
-                run.status = RunStatus.FAILED
-                run.error_log = str(e)
-                run.completed_at = datetime.now(timezone.utc)
+                # ── 7. Conditional PDF / HTML ───────────────────────
+                digest_record = None
+                if (
+                    run.enable_pdf_gen
+                    and trigger.status not in ("failed", "completed_empty")
+                    and all_finding_dicts
+                ):
+                    run_log.info("digest_generation_start", step="digest_compile")
+                    digest_record = await self._generate_digest(
+                        trigger,
+                        run,
+                        all_finding_dicts,
+                        snapshot_ids,
+                        db,
+                    )
+                    if digest_record:
+                        run_log.info(
+                            "digest_generated",
+                            step="digest_compile",
+                            digest_id=digest_record.digest_id[:8],
+                            has_pdf=bool(digest_record.pdf_path),
+                        )
+                    else:
+                        run_log.warning(
+                            "digest_generation_failed",
+                            step="digest_compile",
+                        )
+                    if digest_record is None and trigger.status == "completed":
+                        trigger.status = "partial"
+                        await db.commit()
+
+                # ── 8. Conditional email (best-effort, log only) ────
+                if (
+                    run.enable_email_alert
+                    and settings.has_email_configured
+                    and digest_record
+                    and digest_record.pdf_path
+                ):
+                    recipients = (
+                        run.email_recipients
+                        or opts.get("recipients")
+                        or settings.email_recipient_list
+                    )
+                    run_log.info(
+                        "email_sending",
+                        step="email_send",
+                        recipients=len(recipients),
+                    )
+                    await self._send_email(
+                        digest_record,
+                        recipients,
+                    )
+                    run_log.info("email_sent", step="email_send")
+
                 await db.commit()
 
-    async def _try_reuse_latest_digest(
-        self,
-        run_id: str,
-        db: AsyncSession,
-        run: Run,
-        recipients: Optional[list[str]],
-    ) -> bool:
-        """Reuse the most recent digest PDF when agents find zero new content.
-
-        Returns True if a previous digest was found and the run was finalised,
-        False otherwise (caller should fall through to normal compilation).
-        """
-        # Find the latest digest that has a PDF on disk
-        latest = await db.execute(
-            select(Digest)
-            .where(Digest.pdf_path.isnot(None))
-            .order_by(Digest.created_at.desc())
-            .limit(1)
-        )
-        previous_digest = latest.scalar_one_or_none()
-
-        if not previous_digest or not previous_digest.pdf_path:
-            logger.info("no_previous_digest_to_reuse run_id=%s", run_id[:8])
-            return False
-
-        import pathlib
-        if not pathlib.Path(previous_digest.pdf_path).exists():
-            logger.warning(
-                "previous_digest_pdf_missing path=%s", previous_digest.pdf_path
-            )
-            return False
-
-        logger.info(
-            "reusing_previous_digest run_id=%s digest_id=%s pdf=%s",
-            run_id[:8],
-            str(previous_digest.id)[:8],
-            previous_digest.pdf_path,
-        )
-
-        # Send email with the reused PDF
-        email_sent = False
-        effective_recipients = (
-            recipients if recipients is not None else settings.email_recipient_list
-        )
-        if effective_recipients and settings.has_email_configured:
-            try:
-                today = datetime.now().strftime("%Y-%m-%d")
-                subject = f"Zentivra AI Radar - {today} (No new updates)"
-                email_sent = await self.email_service.send_digest_email(
-                    recipients=effective_recipients,
-                    subject=subject,
-                    executive_summary=(
-                        "No new content changes were detected since the last scan. "
-                        "Attached is the most recent intelligence digest for your reference."
-                    ),
-                    pdf_path=previous_digest.pdf_path,
+                run_log.info(
+                    "pipeline_complete",
+                    step="pipeline",
+                    status=trigger.status,
+                    findings=len(all_finding_dicts),
+                    has_pdf=bool(digest_record and digest_record.pdf_path),
+                    email_enabled=run.enable_email_alert,
                 )
-            except Exception as e:
-                logger.error("reuse_email_send_error error=%s", str(e))
 
-        # Finalise the run
-        run.status = RunStatus.COMPLETED
-        run.completed_at = datetime.now(timezone.utc)
-        run.total_findings = 0
-        run.error_log = (
-            "No new content detected. The latest digest "
-            f"(from {previous_digest.date}) was {'emailed' if email_sent else 'available'} "
-            "for reference. View it in the Digests section."
-        )
-        return True
+                logger.info(
+                    "pipeline_complete trigger=%s status=%s findings=%d pdf=%s email=%s",
+                    trigger.run_trigger_id[:8],
+                    trigger.status,
+                    len(all_finding_dicts),
+                    bool(digest_record and digest_record.pdf_path),
+                    run.enable_email_alert,
+                )
 
-    async def _run_agents(
+            except Exception as exc:
+                logger.error(
+                    "pipeline_error trigger=%s err=%s",
+                    trigger.run_trigger_id[:8],
+                    str(exc)[:500],
+                )
+                run_log.error(
+                    "pipeline_error",
+                    step="pipeline",
+                    error=str(exc)[:500],
+                )
+                trigger.status = "failed"
+                try:
+                    await db.commit()
+                except Exception as commit_exc:
+                    logger.error(
+                        "pipeline_final_commit_failed err=%s",
+                        str(commit_exc)[:200],
+                    )
+            finally:
+                run_log.close()
+
+    # ── Layer 1: Source Resolution ──────────────────────────────────
+
+    async def _resolve_sources(
         self,
-        run_id: str,
+        run: Run,
         db: AsyncSession,
-        selected_agent_types: Optional[set[AgentType]] = None,
-        selected_source_ids: Optional[set[str]] = None,
-        max_sources_per_agent: Optional[int] = None,
-    ) -> list[dict]:
-        """Run agents in parallel and collect findings with partial-failure tolerance."""
-        sources_by_type = await self._load_sources(
-            db=db,
-            selected_agent_types=selected_agent_types,
-            selected_source_ids=selected_source_ids,
-            max_sources_per_agent=max_sources_per_agent,
-        )
-        run = await self._get_run(run_id, db)
+        opts: dict,
+    ) -> dict[str, list[Source]]:
+        """Resolve source UUIDs from run config -> grouped Source objects."""
+        source_uuids: list[str] = run.sources or []
+        if not source_uuids:
+            return {}
 
+        result = await db.execute(
+            select(Source).where(
+                Source.source_id.in_(source_uuids), Source.is_enabled == True
+            )  # noqa: E712
+        )
+        sources = list(result.scalars().all())
+
+        max_per_agent = opts.get("max_sources_per_agent")
+        grouped: dict[str, list[Source]] = {}
+        for source in sources:
+            grouped.setdefault(source.agent_type, []).append(source)
+
+        if max_per_agent:
+            for key in list(grouped.keys()):
+                grouped[key] = grouped[key][:max_per_agent]
+
+        return grouped
+
+    # ── Layer 2: Parallel Agent Execution ──────────────────────────
+
+    _EMPTY_AGENT_RESULT: dict = {
+        "findings": [],
+        "errors": [],
+        "urls_attempted": 0,
+        "urls_succeeded": 0,
+    }
+
+    async def _run_agents_parallel(
+        self,
+        sources_by_type: dict[str, list[Source]],
+        run_config: Run,
+        run_log: RunLogger | None = None,
+    ) -> list[tuple[str, dict, Optional[Exception]]]:
+        """Run all agent types concurrently, returning structured results."""
         tasks: list[asyncio.Task] = []
 
-        for agent_type, agent_class in AGENT_MAP.items():
-            if selected_agent_types and agent_type not in selected_agent_types:
-                if run:
-                    await self._set_agent_status(run, db, agent_type.value, "skipped (not selected)")
+        for agent_type_str, sources in sources_by_type.items():
+            try:
+                agent_type = AgentType(agent_type_str)
+            except ValueError:
+                logger.warning("unknown_agent_type type=%s", agent_type_str)
                 continue
 
-            sources = sources_by_type.get(agent_type, [])
-            if not sources:
-                logger.info("no_sources_for_agent agent_type=%s", agent_type.value)
-                if run:
-                    await self._set_agent_status(run, db, agent_type.value, "skipped (no sources)")
+            agent_class = AGENT_MAP.get(agent_type)
+            if not agent_class:
                 continue
-
-            if run:
-                await self._set_agent_status(
-                    run, db, agent_type.value, f"running ({len(sources)} sources)"
-                )
 
             agent = agent_class()
-            tasks.append(
-                asyncio.create_task(
-                    self._run_agent_job(
-                        agent_name=agent_type.value,
-                        agent_type=agent_type,
-                        agent=agent,
-                        run_id=run_id,
-                        sources=sources,
-                    )
-                )
+
+            # Create per-agent sub-logger
+            agent_logger = run_log.for_agent(agent_type_str) if run_log else None
+
+            task = asyncio.create_task(
+                self._run_single_agent(
+                    agent_name=agent_type_str,
+                    agent=agent,
+                    sources=sources,
+                    run_config=run_config,
+                    agent_logger=agent_logger,
+                ),
+                name=f"agent-{agent_type_str}",
             )
+            tasks.append(task)
 
         if not tasks:
             return []
 
-        all_findings: list[dict] = []
-        for task in asyncio.as_completed(tasks):
-            agent_name, findings, error = await task
-            if error:
-                logger.error("agent_failed agent=%s error=%s", agent_name, str(error))
-                if run:
-                    await self._set_agent_status(
-                        run,
-                        db,
-                        agent_name,
-                        f"failed: {str(error)[:160]}",
-                    )
-                continue
+        results: list[tuple[str, dict, Optional[Exception]]] = []
+        for coro in asyncio.as_completed(tasks):
+            result = await coro
+            results.append(result)
 
-            all_findings.extend(findings)
-            if run:
-                await self._set_agent_status(
-                    run,
-                    db,
-                    agent_name,
-                    f"completed ({len(findings)} findings)",
-                )
-
-        logger.info(
-            "all_agents_complete total_findings=%d agents_run=%d",
-            len(all_findings),
-            len(tasks),
-        )
-        return all_findings
-
-    async def _run_agent_job(
-        self,
-        agent_name: str,
-        agent_type: AgentType,
-        agent,
-        run_id: str,
-        sources: list[Source],
-    ) -> tuple[str, list[dict], Optional[Exception]]:
-        """Execute one agent task and return a normalized result tuple."""
-        try:
-            findings = await self._run_single_agent_with_timeout(
-                agent=agent,
-                run_id=run_id,
-                sources=sources,
-                agent_type=agent_type,
-            )
-            return agent_name, findings, None
-        except Exception as e:
-            return agent_name, [], e
-
-    async def _run_single_agent_with_timeout(
-        self,
-        agent,
-        run_id: str,
-        sources: list[Source],
-        agent_type: AgentType,
-    ) -> list[dict]:
-        """Run one agent with a hard timeout to prevent indefinite hangs."""
-        timeout_seconds = max(0, int(settings.agent_timeout_seconds))
-        if timeout_seconds == 0:
-            return await self._run_single_agent(agent, run_id, sources, agent_type)
-
-        try:
-            return await asyncio.wait_for(
-                self._run_single_agent(agent, run_id, sources, agent_type),
-                timeout=timeout_seconds,
-            )
-        except asyncio.TimeoutError:
-            async with async_session() as log_db:
-                await self._append_agent_log(
-                    db=log_db,
-                    run_id=run_id,
-                    agent_type=agent_type,
-                    level="error",
-                    message=f"agent_timeout timeout_seconds={timeout_seconds}",
-                )
-            raise RuntimeError(f"timed out after {timeout_seconds}s")
+        return results
 
     async def _run_single_agent(
         self,
-        agent,
-        run_id: str,
-        sources: list[Source],
-        agent_type: AgentType,
-    ) -> list[dict]:
-        """Run a single agent with an isolated DB session."""
-        async with async_session() as log_db:
-            await self._append_agent_log(
-                db=log_db,
-                run_id=run_id,
-                agent_type=agent_type,
-                message=f"agent_started sources={len(sources)}",
-                level="info",
-            )
-
-        try:
-            async with async_session() as agent_db:
-                async def _log_callback(
-                    level: str,
-                    message: str,
-                    context: Optional[dict] = None,
-                ) -> None:
-                    async with async_session() as log_db:
-                        await self._append_agent_log(
-                            db=log_db,
-                            run_id=run_id,
-                            agent_type=agent_type,
-                            level=level,
-                            message=message,
-                            context=context,
-                        )
-
-                findings = await agent.run(
-                    run_id,
-                    sources,
-                    db=agent_db,
-                    log_callback=_log_callback,
-                )
-                await agent_db.commit()
-                return findings
-        except Exception as e:
-            async with async_session() as log_db:
-                await self._append_agent_log(
-                    db=log_db,
-                    run_id=run_id,
-                    agent_type=agent_type,
-                    level="error",
-                    message=f"agent_crashed error={str(e)[:300]}",
-                )
-            raise
-        finally:
-            await agent.close()
-
-    async def _load_sources(
-        self,
-        db: AsyncSession,
-        selected_agent_types: Optional[set[AgentType]] = None,
-        selected_source_ids: Optional[set[str]] = None,
-        max_sources_per_agent: Optional[int] = None,
-    ) -> dict[AgentType, list[Source]]:
-        """Load enabled sources grouped by agent type with optional filters."""
-        query = select(Source).where(Source.enabled == True)  # noqa: E712
-
-        if selected_agent_types:
-            query = query.where(Source.agent_type.in_(list(selected_agent_types)))
-
-        if selected_source_ids:
-            query = query.where(Source.id.in_(list(selected_source_ids)))
-
-        result = await db.execute(query)
-        sources = result.scalars().all()
-
-        grouped: dict[AgentType, list[Source]] = {}
-        for source in sources:
-            agent_type = AgentType(source.agent_type)
-            grouped.setdefault(agent_type, []).append(source)
-
-        if max_sources_per_agent:
-            for key in list(grouped.keys()):
-                grouped[key] = grouped[key][:max_sources_per_agent]
-
-        return grouped
-
-    async def _set_agent_status(
-        self,
-        run: Run,
-        db: AsyncSession,
         agent_name: str,
-        status: str,
-    ) -> None:
-        """Persist one agent status update reliably for JSON columns."""
-        statuses = dict(run.agent_statuses or {})
-        statuses[agent_name] = status
-        run.agent_statuses = statuses
-        await db.commit()
+        agent,
+        sources: list[Source],
+        run_config: Run,
+        agent_logger=None,
+    ) -> tuple[str, dict, Optional[Exception]]:
+        """Execute one agent with timeout and error handling."""
+        timeout = max(0, int(settings.agent_timeout_seconds))
+        logger.info(
+            "agent_start agent=%s sources=%d",
+            agent_name,
+            len(sources),
+        )
+        if agent_logger:
+            agent_logger.info(
+                "agent_start",
+                step="pipeline",
+                sources=len(sources),
+            )
 
-        agent_type = self._to_agent_type(agent_name)
-        if agent_type:
-            level = "error" if status.startswith("failed") else "info"
-            async with async_session() as log_db:
-                await self._append_agent_log(
-                    db=log_db,
-                    run_id=run.id,
-                    agent_type=agent_type,
-                    level=level,
-                    message=f"status_update status={status}",
-                    context={"status": status},
+        try:
+            if timeout > 0:
+                result = await asyncio.wait_for(
+                    agent.run(
+                        sources=sources,
+                        run_config=run_config,
+                        run_logger=agent_logger,
+                    ),
+                    timeout=timeout,
                 )
-
-    def _build_initial_agent_statuses(
-        self, selected_agent_types: Optional[set[AgentType]]
-    ) -> dict[str, str]:
-        """Build the initial status map for all agents."""
-        statuses: dict[str, str] = {}
-        for agent_type in AGENT_MAP:
-            if selected_agent_types and agent_type not in selected_agent_types:
-                statuses[agent_type.value] = "skipped (not selected)"
             else:
-                statuses[agent_type.value] = "pending"
-        return statuses
-
-    def _normalize_agent_types(
-        self, agent_types: Optional[list[str]]
-    ) -> Optional[set[AgentType]]:
-        """Convert optional input strings to AgentType enums."""
-        if not agent_types:
-            return None
-
-        normalized: set[AgentType] = set()
-        for value in agent_types:
-            try:
-                normalized.add(AgentType(value))
-            except ValueError:
-                logger.warning("invalid_agent_type_filter value=%s", value)
-        return normalized or None
-
-    def _normalize_recipients(self, recipients: Optional[list[str]]) -> Optional[list[str]]:
-        """Clean recipient overrides, returning None when no override is supplied."""
-        if recipients is None:
-            return None
-        cleaned = [r.strip() for r in recipients if r and r.strip()]
-        return cleaned
-
-    async def _append_agent_log(
-        self,
-        db: AsyncSession,
-        run_id: str,
-        agent_type: AgentType,
-        message: str,
-        level: str = "info",
-        context: Optional[dict] = None,
-    ) -> None:
-        """Persist one agent log line and commit for live UI visibility."""
-        try:
-            db.add(
-                RunAgentLog(
-                    run_id=run_id,
-                    agent_type=agent_type,
-                    level=level,
-                    message=message,
-                    context=context,
+                result = await agent.run(
+                    sources=sources,
+                    run_config=run_config,
+                    run_logger=agent_logger,
                 )
+
+            logger.info(
+                "agent_complete agent=%s findings=%d errors=%d",
+                agent_name,
+                len(result["findings"]),
+                len(result["errors"]),
             )
-            await db.commit()
-        except Exception as e:
-            await db.rollback()
-            logger.debug(
-                "agent_log_persist_failed run_id=%s agent=%s error=%s",
-                run_id[:8],
-                agent_type.value,
-                str(e),
+            if agent_logger:
+                agent_logger.info(
+                    "agent_complete",
+                    step="pipeline",
+                    findings=len(result["findings"]),
+                    errors=len(result["errors"]),
+                )
+            return agent_name, result, None
+
+        except asyncio.TimeoutError:
+            logger.error("agent_timeout agent=%s timeout=%ds", agent_name, timeout)
+            if agent_logger:
+                agent_logger.error(
+                    "agent_timeout",
+                    step="pipeline",
+                    timeout_seconds=timeout,
+                )
+            return (
+                agent_name,
+                {
+                    **self._EMPTY_AGENT_RESULT,
+                    "errors": [f"agent timeout after {timeout}s"],
+                },
+                RuntimeError(f"timed out after {timeout}s"),
+            )
+        except Exception as exc:
+            logger.error("agent_error agent=%s err=%s", agent_name, str(exc)[:300])
+            if agent_logger:
+                agent_logger.error(
+                    "agent_error",
+                    step="pipeline",
+                    error=str(exc)[:300],
+                )
+            return (
+                agent_name,
+                {**self._EMPTY_AGENT_RESULT, "errors": [str(exc)[:300]]},
+                exc,
+            )
+        finally:
+            try:
+                await agent.close()
+            except Exception:
+                pass
+
+    # ── Layer 3: Finding Persistence ───────────────────────────────
+
+    async def _persist_findings(
+        self,
+        finding_dicts: list[dict],
+        run_trigger_id: int,
+        db: AsyncSession,
+    ) -> None:
+        """Persist all finding dicts as Finding records."""
+        if not finding_dicts:
+            return
+
+        for fd in finding_dicts:
+            finding = Finding(
+                run_trigger_id=run_trigger_id,
+                content=fd.get("content", ""),
+                summary=fd.get("summary", ""),
+                src_url=fd.get("src_url", ""),
+                category=fd.get("category", "other"),
+                confidence=fd.get("confidence", 0.5),
+            )
+            db.add(finding)
+
+        await db.flush()
+        logger.info("findings_persisted count=%d", len(finding_dicts))
+
+    # ── Layer 4: Snapshot Generation ───────────────────────────────
+
+    async def _create_snapshots(
+        self,
+        sources_by_type: dict[str, list[Source]],
+        all_findings: list[dict],
+        agent_statuses: dict[str, str],
+        run_trigger_id: int,
+        db: AsyncSession,
+    ) -> list[int]:
+        """Create per-source Snapshot records summarizing execution."""
+        url_to_findings: dict[str, int] = {}
+        for fd in all_findings:
+            url = fd.get("src_url", "")
+            url_to_findings[url] = url_to_findings.get(url, 0) + 1
+
+        snapshot_ids: list[int] = []
+        for agent_type_str, sources in sources_by_type.items():
+            status = agent_statuses.get(agent_type_str, "completed")
+            snap_status = "failed" if status == "failed" else "completed"
+
+            for source in sources:
+                findings_count = url_to_findings.get(source.url, 0)
+                snapshot = Snapshot(
+                    run_trigger_id=run_trigger_id,
+                    source_id=source.id,
+                    total_findings=findings_count,
+                    summary=f"{agent_type_str}: {findings_count} findings from {source.display_name}",
+                    status=snap_status,
+                )
+                db.add(snapshot)
+                await db.flush()
+                snapshot_ids.append(snapshot.id)
+
+        logger.info("snapshots_created count=%d", len(snapshot_ids))
+        return snapshot_ids
+
+    # ── Layer 5-6: Digest + PDF/HTML ───────────────────────────────
+
+    async def _generate_digest(
+        self,
+        trigger: RunTrigger,
+        run: Run,
+        findings: list[dict],
+        snapshot_ids: list[int],
+        db: AsyncSession,
+    ) -> Digest | None:
+        """Compile digest, generate PDF + HTML, persist Digest record."""
+        try:
+            digest_data = await self.digest_compiler.compile(
+                run_trigger_id=trigger.id,
+                findings=findings,
             )
 
-    def _to_agent_type(self, value: str) -> Optional[AgentType]:
-        """Convert a string to AgentType safely."""
-        try:
-            return AgentType(value)
-        except ValueError:
+            pdf_path: str | None = None
+            html_path: str | None = None
+            try:
+                rendered_path = self.pdf_renderer.render(digest_data)
+                if rendered_path.endswith(".html"):
+                    html_path = rendered_path
+                else:
+                    pdf_path = rendered_path
+                    # HTML is always generated alongside the PDF
+                    html_path = rendered_path.replace(".pdf", ".html")
+            except Exception as exc:
+                logger.error("pdf_render_error err=%s", str(exc)[:200])
+
+            digest = Digest(
+                run_trigger_id=trigger.id,
+                digest_name=digest_data.get("digest_title"),
+                pdf_path=pdf_path,
+                html_path=html_path,
+                status="completed",
+            )
+            db.add(digest)
+            await db.flush()
+
+            for snap_id in snapshot_ids:
+                link = DigestSnapshot(
+                    digest_id=digest.id,
+                    snapshot_id=snap_id,
+                )
+                db.add(link)
+
+            await db.flush()
+            logger.info(
+                "digest_created digest_id=%s pdf=%s",
+                digest.digest_id[:8],
+                bool(pdf_path),
+            )
+            return digest
+
+        except Exception as exc:
+            logger.error("digest_generation_error err=%s", str(exc)[:300])
             return None
 
-    async def _get_run(self, run_id: str, db: AsyncSession) -> Optional[Run]:
-        """Get a run by ID."""
-        result = await db.execute(select(Run).where(Run.id == run_id))
-        return result.scalar_one_or_none()
+    # ── Layer 7: Email ─────────────────────────────────────────────
+
+    async def _send_email(
+        self,
+        digest: Digest,
+        recipients: list[str],
+    ) -> None:
+        """Send digest email if configured."""
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            subject = f"Zentivra AI Radar - {today}"
+            await self.email_service.send_digest_email(
+                recipients=recipients,
+                subject=subject,
+                executive_summary="Your Zentivra AI Radar digest is ready.",
+                pdf_path=digest.pdf_path,
+            )
+            logger.info("email_sent recipients=%d", len(recipients))
+        except Exception as exc:
+            logger.error("email_send_error err=%s", str(exc)[:200])

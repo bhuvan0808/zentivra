@@ -1,15 +1,13 @@
 """
-Digest model - A compiled daily intelligence digest.
+Digest model - A compiled intelligence digest.
 
-Stores the executive summary, PDF path, and email delivery status
-for each generated daily report.
+Matches the actual DB schema: digests table.
 """
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text
-from sqlalchemy import JSON
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -18,30 +16,46 @@ from app.database import Base
 class Digest(Base):
     __tablename__ = "digests"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    digest_id: Mapped[str] = mapped_column(
+        String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4())
     )
-    run_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("runs.id"), nullable=False, unique=True, index=True
+    run_trigger_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("run_triggers.id"), nullable=False, index=True
     )
-    date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
-    executive_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     pdf_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    email_sent: Mapped[bool] = mapped_column(Boolean, default=False)
-    sent_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    recipients: Mapped[list | None] = mapped_column(JSON, nullable=True)
-    sections: Mapped[dict | None] = mapped_column(
-        JSON, nullable=True  # Per-section narratives for the digest
-    )
-    total_findings: Mapped[int | None] = mapped_column(default=0)
+    html_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
+    digest_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
     )
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
     # Relationships
-    run = relationship("Run", back_populates="digest")
+    run_trigger = relationship("RunTrigger", back_populates="digests", lazy="selectin")
+    snapshot_links = relationship(
+        "DigestSnapshot", back_populates="digest", lazy="selectin"
+    )
 
     def __repr__(self) -> str:
-        return f"<Digest(date='{self.date}', email_sent={self.email_sent})>"
+        return f"<Digest(digest_id='{self.digest_id}', status='{self.status}')>"
+
+    @property
+    def run_trigger_uuid(self) -> str | None:
+        return (
+            self.run_trigger.run_trigger_id
+            if getattr(self, "run_trigger", None)
+            else None
+        )

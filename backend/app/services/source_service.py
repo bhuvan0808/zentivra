@@ -20,21 +20,26 @@ class SourceService:
     ) -> Sequence[Source]:
         return await self.repo.get_all_filtered(agent_type=agent_type, enabled=enabled)
 
-    async def get_by_id(self, source_id: str) -> Source:
-        source = await self.repo.get_by_id(source_id)
+    async def get_by_uuid(self, source_id: str) -> Source:
+        source = await self.repo.get_by_uuid(source_id)
         if not source:
             raise HTTPException(status_code=404, detail="Source not found")
         return source
 
     async def create(self, data: SourceCreate) -> Source:
-        source = Source(**data.model_dump())
+        source = Source(
+            source_name=data.source_name,
+            display_name=data.display_name,
+            agent_type=data.agent_type,
+            url=data.url,
+        )
         return await self.repo.create(source)
 
     async def update(self, source_id: str, data: SourceUpdate) -> Source:
-        source = await self.get_by_id(source_id)
+        source = await self.get_by_uuid(source_id)
         update_data = data.model_dump(exclude_unset=True)
         return await self.repo.update(source, update_data)
 
     async def delete(self, source_id: str) -> None:
-        source = await self.get_by_id(source_id)
+        source = await self.get_by_uuid(source_id)
         await self.repo.delete(source)
