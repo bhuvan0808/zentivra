@@ -14,6 +14,7 @@ from app.schemas.run import (
     RunTriggerResponse,
     RunUpdate,
 )
+from app.scheduler.scheduler import sync_scheduler
 from app.services.run_service import RunService
 
 router = APIRouter(prefix="/runs", tags=["Runs"])
@@ -41,6 +42,7 @@ async def create_run(
 ):
     """Create a new run configuration. Optionally trigger immediately."""
     run = await service.create(run_data, user.id)
+    await sync_scheduler()
 
     trigger_resp = None
     if run_data.trigger_on_create:
@@ -88,7 +90,9 @@ async def update_run(
     user: CurrentUser = Depends(get_current_user),
 ):
     """Update a run configuration by its UUID."""
-    return await service.update(run_id, run_data, user.id)
+    result = await service.update(run_id, run_data, user.id)
+    await sync_scheduler()
+    return result
 
 
 @router.delete("/{run_id}", status_code=204)
@@ -99,6 +103,7 @@ async def delete_run(
 ):
     """Delete a run configuration by its UUID."""
     await service.delete(run_id, user.id)
+    await sync_scheduler()
 
 
 # ── Trigger ─────────────────────────────────────────────────
