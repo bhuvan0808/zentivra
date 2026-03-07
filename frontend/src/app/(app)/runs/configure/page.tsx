@@ -334,7 +334,7 @@ export default function ConfigureRunPage() {
       crawl_frequency: encodeFrequency() || undefined,
       crawl_depth: finalParams.crawl_depth,
       keywords:
-        finalParams.keywords.length > 0 ? finalParams.keywords : undefined,
+        finalParams.keywords.length > 0 ? finalParams.keywords : [],
       trigger_on_create: andTrigger,
     });
 

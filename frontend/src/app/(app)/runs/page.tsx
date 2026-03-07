@@ -1046,7 +1046,7 @@ function RunEditDialog({
         enableEmailAlert && recipients.length > 0 ? recipients : undefined,
       crawl_frequency: encodeFrequency(),
       crawl_depth: crawlDepth,
-      keywords: keywords.length > 0 ? keywords : undefined,
+      keywords: keywords.length > 0 ? keywords : [],
       sources: Array.from(selectedSourceIds),
     });
     setSaving(false);

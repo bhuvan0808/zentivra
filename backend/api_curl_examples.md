@@ -57,6 +57,7 @@ curl -X POST "$BASE_URL/api/auth/signup" \
   -H "Content-Type: application/json" \
   -d '{
     "username": "kaustubh",
+    "email": "kaustubh@example.com",
     "password": "securePass123",
     "display_name": "Kaustubh Paturi"
   }'
@@ -68,6 +69,7 @@ curl -X POST "$BASE_URL/api/auth/signup" \
 {
   "user_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "username": "kaustubh",
+  "email": "kaustubh@example.com",
   "display_name": "Kaustubh Paturi",
   "auth_token": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
   "expires_at": "2026-03-05T14:30:00+00:00"
@@ -79,6 +81,14 @@ curl -X POST "$BASE_URL/api/auth/signup" \
 ```json
 {
   "detail": "Username already taken"
+}
+```
+
+**Error -- email already registered (409):**
+
+```json
+{
+  "detail": "Email already registered"
 }
 ```
 
@@ -114,6 +124,7 @@ curl -X POST "$BASE_URL/api/auth/login" \
 {
   "user_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "username": "kaustubh",
+  "email": "kaustubh@example.com",
   "display_name": "Kaustubh Paturi",
   "auth_token": "9c8d7e6f-5a4b-3c2d-1e0f-abcdef123456",
   "expires_at": "2026-03-05T14:30:00+00:00"
@@ -124,7 +135,7 @@ curl -X POST "$BASE_URL/api/auth/login" \
 
 ```json
 {
-  "detail": "Invalid username or password"
+  "detail": "Invalid credentials"
 }
 ```
 
@@ -172,8 +183,8 @@ curl -X GET "$BASE_URL/api/auth/me" \
 {
   "user_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "username": "kaustubh",
+  "email": "kaustubh@example.com",
   "display_name": "Kaustubh Paturi",
-  "last_login": "2026-03-05T12:30:00+00:00",
   "created_at": "2026-03-05T08:00:00+00:00"
 }
 ```
@@ -1042,7 +1053,8 @@ async function apiCall(url, options = {}) {
 | Endpoint | Status | `detail` message |
 |---|---|---|
 | `POST /api/auth/signup` | 409 | `"Username already taken"` |
-| `POST /api/auth/login` | 401 | `"Invalid username or password"` |
+| `POST /api/auth/signup` | 409 | `"Email already registered"` |
+| `POST /api/auth/login` | 401 | `"Invalid credentials"` |
 | `POST /api/auth/login` | 403 | `"Account is disabled"` |
 | Any protected route | 401 | `"Invalid or expired session"` |
 | Any protected route | 401 | `"Session expired"` |

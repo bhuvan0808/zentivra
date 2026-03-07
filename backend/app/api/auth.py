@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, Header
 
-from app.dependencies import get_auth_service, get_current_user
+from app.dependencies import get_auth_service, get_current_user, get_current_user_full, CurrentUser
 from app.models.user import User
 from app.schemas.auth import (
     AuthResponse,
@@ -36,7 +36,7 @@ async def login(
 @router.post("/logout")
 async def logout(
     authorization: str = Header(..., alias="Authorization"),
-    _user: User = Depends(get_current_user),
+    _user: CurrentUser = Depends(get_current_user),
     service: AuthService = Depends(get_auth_service),
 ):
     token = authorization.removeprefix("Bearer ").strip()
@@ -46,5 +46,5 @@ async def logout(
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(current_user: User = Depends(get_current_user)):
+async def get_me(current_user: User = Depends(get_current_user_full)):
     return current_user

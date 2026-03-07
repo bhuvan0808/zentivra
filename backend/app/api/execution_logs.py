@@ -5,20 +5,32 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_current_user
+from app.database import get_db
+from app.dependencies import CurrentUser, get_current_user
+from app.repositories.run_trigger_repository import RunTriggerRepository
 
 router = APIRouter(
     prefix="/run-triggers",
     tags=["Execution Logs"],
-    dependencies=[Depends(get_current_user)],
 )
 
-# Resolved log directory (relative to backend/)
 LOG_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "logs"
 
-# Fields to strip from preview (per requirement: skip filename & line number)
 _STRIP_FIELDS = {"filename", "lineno", "line_number", "file_name", "pathname"}
+
+
+async def _verify_trigger_ownership(
+    trigger_id: str, db: AsyncSession, user: CurrentUser
+) -> None:
+    """Verify the trigger belongs to a run owned by the current user."""
+    repo = RunTriggerRepository(db)
+    trigger = await repo.get_by_uuid(trigger_id)
+    if not trigger:
+        raise HTTPException(status_code=404, detail="Run trigger not found")
+    if trigger.run and trigger.run.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Run trigger not found")
 
 
 def _trigger_log_dir(trigger_id: str) -> Path:
@@ -42,8 +54,13 @@ def _count_lines(file_path: Path) -> int:
 
 
 @router.get("/{trigger_id}/logs")
-async def list_trigger_logs(trigger_id: str):
+async def list_trigger_logs(
+    trigger_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+):
     """List available agent logs for a trigger execution."""
+    await _verify_trigger_ownership(trigger_id, db, user)
     log_dir = _trigger_log_dir(trigger_id)
 
     agents = []
@@ -69,11 +86,11 @@ async def preview_trigger_logs(
     trigger_id: str,
     agent_name: str,
     limit: int = Query(50, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
 ):
-    """Preview the first N log lines for a specific agent as JSON.
-
-    Strips filename/lineno fields from each log entry per requirement.
-    """
+    """Preview the first N log lines for a specific agent as JSON."""
+    await _verify_trigger_ownership(trigger_id, db, user)
     log_dir = _trigger_log_dir(trigger_id)
     log_file = log_dir / agent_name / "logs.ndjson"
 
@@ -95,7 +112,6 @@ async def preview_trigger_logs(
                     continue
                 try:
                     entry = json.loads(line)
-                    # Strip filename/lineno fields
                     for field in _STRIP_FIELDS:
                         entry.pop(field, None)
                     preview.append(entry)
@@ -110,8 +126,14 @@ async def preview_trigger_logs(
 
 
 @router.get("/{trigger_id}/logs/{agent_name}/download")
-async def download_trigger_log(trigger_id: str, agent_name: str):
+async def download_trigger_log(
+    trigger_id: str,
+    agent_name: str,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+):
     """Download the raw .ndjson log file for a specific agent."""
+    await _verify_trigger_ownership(trigger_id, db, user)
     log_dir = _trigger_log_dir(trigger_id)
     log_file = log_dir / agent_name / "logs.ndjson"
 

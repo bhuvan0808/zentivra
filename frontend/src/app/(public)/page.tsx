@@ -90,6 +90,8 @@ const fadeBlur = {
   animate: { opacity: 1, filter: "blur(0px)" },
 };
 
+import { PublicGuard } from "@/components/public-guard";
+
 function LandingContent() {
   const searchParams = useSearchParams();
   const redirect = searchParams.get("redirect");
@@ -323,8 +325,8 @@ function LandingContent() {
 
 export default function LandingPage() {
   return (
-    <Suspense>
+    <PublicGuard>
       <LandingContent />
-    </Suspense>
+    </PublicGuard>
   );
 }
