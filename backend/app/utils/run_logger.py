@@ -1,8 +1,10 @@
 """
-RunLogger - Per-run NDJSON execution logger.
+RunLogger - Per-trigger, per-agent NDJSON execution logger.
 
-Each pipeline run gets its own .ndjson file where every step
-(discover, fetch, extract, change_detect, summarize, finding, error)
+Directory layout:
+    data/logs/<trigger_id>/<agent_name>/logs.ndjson
+
+Each pipeline step (discover, fetch, extract, preprocess, summarize, …)
 is recorded as a JSON line. The same content is also forwarded to
 the terminal via the standard logger.
 """
@@ -18,30 +20,79 @@ from app.utils.logger import logger
 
 class RunLogger:
     """
-    Writes structured NDJSON log entries for a single pipeline run
-    and mirrors them to the terminal logger.
+    Writes structured NDJSON log entries for a single pipeline trigger.
+
+    Use ``for_agent(agent_name)`` to get a sub-logger that writes to
+    ``<trigger_id>/<agent_name>/logs.ndjson``.
     """
 
-    def __init__(self, run_id: str, log_dir: Path):
-        self.run_id = run_id
-        self.file_path = log_dir / f"{run_id}.ndjson"
-        self._file = open(self.file_path, "a", encoding="utf-8")
+    def __init__(self, trigger_id: str, log_dir: Path | str):
+        self.trigger_id = trigger_id
+        self.log_dir = Path(log_dir) / trigger_id
+        self._agents: dict[str, "_AgentLogger"] = {}
+
+        # Orchestrator-level logger
+        self._orchestrator = self._make_agent_logger("orchestrator")
+
+    def _make_agent_logger(self, agent_name: str) -> "_AgentLogger":
+        agent_dir = self.log_dir / agent_name
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        file_path = agent_dir / "logs.ndjson"
+        return _AgentLogger(
+            trigger_id=self.trigger_id,
+            agent_name=agent_name,
+            file_path=file_path,
+        )
+
+    def for_agent(self, agent_name: str) -> "_AgentLogger":
+        """Return (or create) the sub-logger for the given agent."""
+        if agent_name not in self._agents:
+            self._agents[agent_name] = self._make_agent_logger(agent_name)
+        return self._agents[agent_name]
+
+    # ── Convenience: orchestrator-level logging ──
+
+    def info(self, event: str, **kw: Any):
+        self._orchestrator.info(event, **kw)
+
+    def warning(self, event: str, **kw: Any):
+        self._orchestrator.warning(event, **kw)
+
+    def error(self, event: str, **kw: Any):
+        self._orchestrator.error(event, **kw)
+
+    def log(self, level: str, event: str, **kw: Any):
+        self._orchestrator.log(level, event, **kw)
+
+    def close(self):
+        self._orchestrator.close()
+        for al in self._agents.values():
+            al.close()
+
+
+class _AgentLogger:
+    """Writes NDJSON for one agent within a trigger execution."""
+
+    def __init__(self, trigger_id: str, agent_name: str, file_path: Path):
+        self.trigger_id = trigger_id
+        self.agent_name = agent_name
+        self.file_path = file_path
+        self._file = open(file_path, "a", encoding="utf-8")
 
     def log(
         self,
         level: str,
         event: str,
         *,
-        agent: Optional[str] = None,
-        phase: Optional[str] = None,
+        step: Optional[str] = None,
         **data: Any,
     ):
         entry: dict[str, Any] = {
             "ts": datetime.now(timezone.utc).isoformat(),
-            "run_id": self.run_id,
+            "trigger_id": self.trigger_id,
             "level": level,
-            "agent": agent,
-            "phase": phase,
+            "agent": self.agent_name,
+            "step": step or "pipeline",
             "event": event,
         }
         entry.update(data)
@@ -49,12 +100,13 @@ class RunLogger:
         self._file.write(json.dumps(entry, default=str) + "\n")
         self._file.flush()
 
+        # Mirror to terminal
         log_level = getattr(logging, level.upper(), logging.INFO)
-        parts = [f"[run:{self.run_id[:8]}]"]
-        if agent:
-            parts.append(f"[{agent}]")
-        if phase:
-            parts.append(f"[{phase}]")
+        parts = [f"[trigger:{self.trigger_id[:8]}]"]
+        if self.agent_name:
+            parts.append(f"[{self.agent_name}]")
+        if step:
+            parts.append(f"[{step}]")
         parts.append(event)
         extra_str = " ".join(f"{k}={v}" for k, v in data.items())
         if extra_str:

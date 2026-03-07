@@ -2,6 +2,22 @@ import logging
 import sys
 
 
+class _ZentivraLogger(logging.Logger):
+    """Custom logger that auto-attaches tracebacks on error/exception calls."""
+
+    def error(self, msg, *args, **kwargs):
+        if "exc_info" not in kwargs:
+            kwargs["exc_info"] = sys.exc_info()[0] is not None
+        super().error(msg, *args, **kwargs)
+
+    def exception(self, msg, *args, **kwargs):
+        kwargs.setdefault("exc_info", True)
+        super().exception(msg, *args, **kwargs)
+
+
+logging.setLoggerClass(_ZentivraLogger)
+
+
 def setup_logger():
     """
     Centralized logger configuration for Zentivra.

@@ -175,6 +175,19 @@ class Fetcher:
         # Try httpx first
         result = await self._fetch_with_httpx(url, client)
 
+        # Fallback to Playwright on bot-block status codes (403, 406, 429)
+        if (
+            use_playwright_fallback
+            and not result.success
+            and result.status_code in (403, 406, 429)
+        ):
+            logger.info(
+                "playwright_fallback url=%s reason=HTTP %d", url, result.status_code,
+            )
+            pw_result = await self._fetch_with_playwright(url)
+            if pw_result.success:
+                return pw_result
+
         # Fallback to Playwright for JS-heavy pages
         if (
             use_playwright_fallback
@@ -263,33 +276,39 @@ class Fetcher:
         )
 
     async def _fetch_with_playwright(self, url: str) -> FetchResult:
-        """Fetch using Playwright for JavaScript-rendered pages."""
+        """Fetch using Playwright for JavaScript-rendered pages.
+
+        Uses sync_api in a thread to avoid Windows asyncio subprocess issues.
+        """
         try:
-            from playwright.async_api import async_playwright
-
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page(
-                    user_agent=USER_AGENT,
-                )
-                await page.goto(
-                    url, wait_until="networkidle", timeout=self.timeout * 1000
-                )
-                content = await page.content()
-                await browser.close()
-
-                return FetchResult(
-                    url=url,
-                    status_code=200,
-                    content=content,
-                    method="playwright",
-                )
-
+            from playwright.sync_api import sync_playwright
         except ImportError:
             logger.warning("playwright_not_installed url=%s", url)
             return FetchResult(
                 url=url, status_code=0, error="Playwright not installed", success=False
             )
+
+        timeout_ms = max(self.timeout, 30) * 1000
+
+        def _run_sync() -> FetchResult:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page(user_agent=USER_AGENT)
+                try:
+                    page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                    page.wait_for_timeout(2000)
+                    content = page.content()
+                    return FetchResult(
+                        url=url,
+                        status_code=200,
+                        content=content,
+                        method="playwright",
+                    )
+                finally:
+                    browser.close()
+
+        try:
+            return await asyncio.to_thread(_run_sync)
         except Exception as e:
             logger.error("playwright_error url=%s error=%s", url, str(e))
             return FetchResult(

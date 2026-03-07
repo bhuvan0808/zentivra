@@ -1,107 +1,196 @@
-"""Runs API - Trigger runs and view run history."""
+"""Runs API - CRUD for run configurations and trigger endpoint."""
 
-from typing import Optional
+import traceback
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 
-from app.dependencies import get_run_service
-from app.models.run import RunStatus
-from app.models.source import AgentType
+from app.dependencies import get_current_user, get_run_service
+from app.models.user import User
 from app.schemas.run import (
-    RunAgentActivityResponse,
-    RunAgentLogResponse,
-    RunAgentSummaryResponse,
+    RunCreate,
+    RunCreateResponse,
     RunResponse,
+    RunTriggerDetailResponse,
     RunTriggerRequest,
     RunTriggerResponse,
+    RunUpdate,
 )
 from app.services.run_service import RunService
 
 router = APIRouter(prefix="/runs", tags=["Runs"])
 
 
+# ── CRUD (all protected) ───────────────────────────────────
+
+
 @router.get("/", response_model=list[RunResponse])
 async def list_runs(
-    status: Optional[RunStatus] = Query(None),
     limit: int = Query(20, ge=1, le=100),
     service: RunService = Depends(get_run_service),
+    _user: User = Depends(get_current_user),
 ):
-    """List runs, optionally filtered by status."""
-    return await service.list_runs(status=status, limit=limit)
+    """List run configurations, most recent first."""
+    return await service.list_runs(limit=limit)
+
+
+@router.post("/", response_model=RunCreateResponse, status_code=201)
+async def create_run(
+    run_data: RunCreate,
+    background_tasks: BackgroundTasks,
+    service: RunService = Depends(get_run_service),
+    _user: User = Depends(get_current_user),
+):
+    """Create a new run configuration. Optionally trigger immediately."""
+    run = await service.create(run_data)
+
+    trigger_resp = None
+    if run_data.trigger_on_create:
+        trigger, _, options = await service.trigger(run.run_id)
+        background_tasks.add_task(_execute_run, trigger.id, run.id, options)
+        trigger_resp = RunTriggerResponse(
+            run_trigger_id=trigger.run_trigger_id,
+            run_id=run.run_id,
+            message="Run triggered successfully. Pipeline executing in background.",
+            status=trigger.status,
+        )
+
+    return RunCreateResponse(
+        run_id=run.run_id,
+        run_name=run.run_name,
+        description=run.description,
+        enable_pdf_gen=run.enable_pdf_gen,
+        enable_email_alert=run.enable_email_alert,
+        sources=run.sources,
+        crawl_frequency=run.crawl_frequency,
+        crawl_depth=run.crawl_depth,
+        keywords=run.keywords,
+        is_enabled=run.is_enabled,
+        created_at=run.created_at,
+        updated_at=run.updated_at,
+        trigger=trigger_resp,
+    )
 
 
 @router.get("/{run_id}", response_model=RunResponse)
 async def get_run(
     run_id: str,
     service: RunService = Depends(get_run_service),
+    _user: User = Depends(get_current_user),
 ):
-    """Get detailed run info including per-agent statuses."""
-    return await service.get_by_id(run_id)
+    """Get a run configuration by its UUID."""
+    return await service.get_by_uuid(run_id)
 
 
-@router.post("/trigger", response_model=RunTriggerResponse, status_code=202)
+@router.put("/{run_id}", response_model=RunResponse)
+async def update_run(
+    run_id: str,
+    run_data: RunUpdate,
+    service: RunService = Depends(get_run_service),
+    _user: User = Depends(get_current_user),
+):
+    """Update a run configuration by its UUID."""
+    return await service.update(run_id, run_data)
+
+
+@router.delete("/{run_id}", status_code=204)
+async def delete_run(
+    run_id: str,
+    service: RunService = Depends(get_run_service),
+    _user: User = Depends(get_current_user),
+):
+    """Delete a run configuration by its UUID."""
+    await service.delete(run_id)
+
+
+# ── Trigger ─────────────────────────────────────────────────
+
+
+@router.post("/{run_id}/trigger", response_model=RunTriggerResponse, status_code=202)
 async def trigger_run(
+    run_id: str,
     background_tasks: BackgroundTasks,
     payload: RunTriggerRequest | None = None,
     service: RunService = Depends(get_run_service),
+    _user: User = Depends(get_current_user),
 ):
-    """Manually trigger a new pipeline run."""
-    run, options = await service.trigger(payload)
-    background_tasks.add_task(_execute_run, run.id, options)
+    """Trigger execution of a run configuration."""
+    trigger, run, options = await service.trigger(run_id, payload)
+
+    background_tasks.add_task(
+        _execute_run, trigger.id, run.id, options
+    )
+
     return RunTriggerResponse(
-        run_id=run.id,
+        run_trigger_id=trigger.run_trigger_id,
+        run_id=run.run_id,
         message="Run triggered successfully. Pipeline executing in background.",
-        status=RunStatus.PENDING,
+        status=trigger.status,
     )
 
 
-@router.get("/{run_id}/agents", response_model=list[RunAgentSummaryResponse])
-async def get_run_agents(
-    run_id: str,
-    service: RunService = Depends(get_run_service),
+async def _execute_run(
+    run_trigger_id: int, run_id: int, options: dict | None = None
 ):
-    """Get per-agent summary and progress for a run."""
-    return await service.get_agent_summaries(run_id)
+    """Background task: execute the full pipeline via the Orchestrator."""
+    from app.utils.logger import logger
+
+    try:
+        from app.scheduler.orchestrator import Orchestrator
+
+        orchestrator = Orchestrator()
+        await orchestrator.execute(
+            run_trigger_id=run_trigger_id,
+            run_id=run_id,
+            options=options or {},
+        )
+    except Exception:
+        logger.error(
+            "background_task_failed run_trigger_id=%s\n%s",
+            run_trigger_id,
+            traceback.format_exc(),
+        )
 
 
-@router.get(
-    "/{run_id}/agents/{agent_type}/activity",
-    response_model=list[RunAgentActivityResponse],
-)
-async def get_run_agent_activity(
+# ── Trigger history ─────────────────────────────────────────
+
+
+@router.get("/{run_id}/triggers", response_model=list[RunTriggerDetailResponse])
+async def list_triggers_for_run(
     run_id: str,
-    agent_type: AgentType,
-    limit: int = Query(200, ge=1, le=1000),
+    limit: int = Query(50, ge=1, le=200),
     service: RunService = Depends(get_run_service),
+    _user: User = Depends(get_current_user),
 ):
-    """Get recent URL crawl activity for one agent in a run."""
-    return await service.get_agent_activity(run_id, agent_type, limit=limit)
+    """List trigger history for a run (newest first)."""
+    triggers = await service.get_triggers_for_run(run_id, limit=limit)
+    results = []
+    for t in triggers:
+        digest_id = None
+        digest_status = None
+        pdf_url = None
+        html_url = None
+        if t.digests:
+            d = t.digests[0]
+            digest_id = d.digest_id
+            digest_status = d.status
+            pdf_url = d.pdf_path
+            html_url = d.html_path
 
-
-@router.get(
-    "/{run_id}/agents/{agent_type}/logs",
-    response_model=list[RunAgentLogResponse],
-)
-async def get_run_agent_logs(
-    run_id: str,
-    agent_type: AgentType,
-    limit: int = Query(300, ge=1, le=1000),
-    service: RunService = Depends(get_run_service),
-):
-    """Get recent execution logs for one agent in a run."""
-    return await service.get_agent_logs(run_id, agent_type, limit=limit)
-
-
-async def _execute_run(run_id: str, options: dict | None = None):
-    """Execute the full pipeline via the Orchestrator."""
-    from app.scheduler.orchestrator import Orchestrator
-
-    orchestrator = Orchestrator()
-    opts = options or {}
-    await orchestrator.execute_run(
-        run_id=run_id,
-        agent_types=opts.get("agent_types"),
-        source_ids=opts.get("source_ids"),
-        recipients_override=opts.get("recipients"),
-        max_sources_per_agent=opts.get("max_sources_per_agent"),
-    )
+        results.append(
+            RunTriggerDetailResponse(
+                run_trigger_id=t.run_trigger_id,
+                run_id=t.run.run_id if t.run else None,
+                trigger_method=t.trigger_method,
+                status=t.status,
+                is_latest=t.is_latest,
+                created_at=t.created_at,
+                updated_at=t.updated_at,
+                findings_count=len(t.findings) if t.findings else 0,
+                snapshots_count=len(t.snapshots) if t.snapshots else 0,
+                digest_id=digest_id,
+                digest_status=digest_status,
+                pdf_url=pdf_url,
+                html_url=html_url,
+            )
+        )
+    return results

@@ -10,6 +10,8 @@ from app.repositories.base import BaseRepository
 
 
 class SourceRepository(BaseRepository[Source]):
+    uuid_column = "source_id"
+
     def __init__(self, db: AsyncSession):
         super().__init__(Source, db)
 
@@ -22,6 +24,6 @@ class SourceRepository(BaseRepository[Source]):
         if agent_type:
             query = query.where(Source.agent_type == agent_type)
         if enabled is not None:
-            query = query.where(Source.enabled == enabled)
+            query = query.where(Source.is_enabled == enabled)
         result = await self.db.execute(query)
         return result.scalars().all()

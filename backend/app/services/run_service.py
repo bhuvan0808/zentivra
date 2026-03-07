@@ -1,89 +1,69 @@
-"""Service layer for Run business logic."""
-
-from datetime import datetime, timezone
 from typing import Sequence
-
 from fastapi import HTTPException
-
-from app.config import settings
-from app.models.run import Run, RunStatus
-from app.models.source import AgentType
+from app.models.run import Run
+from app.models.run_trigger import RunTrigger
 from app.repositories.run_repository import RunRepository
-from app.schemas.run import RunTriggerRequest
+from app.repositories.run_trigger_repository import RunTriggerRepository
+from app.schemas.run import RunCreate, RunUpdate, RunTriggerRequest
 
 
 class RunService:
-    def __init__(self, repo: RunRepository):
+    def __init__(self, repo: RunRepository, trigger_repo: RunTriggerRepository):
         self.repo = repo
+        self.trigger_repo = trigger_repo
 
-    async def list_runs(
-        self,
-        status: RunStatus | None = None,
-        limit: int = 20,
-    ) -> Sequence[Run]:
-        return await self.repo.get_all_filtered(status=status, limit=limit)
+    async def list_runs(self, limit: int = 20) -> Sequence[Run]:
+        return await self.repo.get_all_filtered(limit=limit)
 
-    async def get_by_id(self, run_id: str) -> Run:
-        run = await self.repo.get_by_id(run_id)
+    async def get_by_uuid(self, run_id: str) -> Run:
+        run = await self.repo.get_by_uuid(run_id)
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
         return run
 
-    async def trigger(self, payload: RunTriggerRequest | None = None) -> tuple[Run, dict]:
-        existing = await self.repo.get_running()
-        if existing:
-            stale_timeout_seconds = max(0, int(settings.stale_run_timeout_seconds))
-            started_at = existing.started_at
-            if started_at and started_at.tzinfo is None:
-                started_at = started_at.replace(tzinfo=timezone.utc)
+    async def create(self, run_data: RunCreate) -> Run:
+        run = Run(**run_data.model_dump(exclude={"trigger_on_create"}))
+        return await self.repo.create(run)
 
-            run_age_seconds = (
-                (datetime.now(timezone.utc) - started_at).total_seconds()
-                if started_at
-                else 0
-            )
-            is_stale = stale_timeout_seconds > 0 and run_age_seconds > stale_timeout_seconds
-
-            if is_stale:
-                existing.status = RunStatus.FAILED
-                existing.completed_at = datetime.now(timezone.utc)
-                statuses = dict(existing.agent_statuses or {})
-                for agent_name, status in list(statuses.items()):
-                    status_text = str(status)
-                    if status_text.startswith("running") or status_text == "pending":
-                        statuses[agent_name] = "failed (stale timeout)"
-                existing.agent_statuses = statuses
-                existing.error_log = (
-                    "Automatically marked failed after exceeding stale run timeout "
-                    f"({stale_timeout_seconds}s)."
-                )
-                await self.repo.db.commit()
-            else:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Run {existing.id} is already in progress.",
-                )
-
-        run = Run(triggered_by="manual")
-        created = await self.repo.create(run)
-        # Ensure the run row is committed before background execution starts.
+    async def update(self, run_id: str, run_data: RunUpdate) -> Run:
+        run = await self.get_by_uuid(run_id)
+        update_data = run_data.model_dump(exclude_unset=True)
+        for key, value in update_data.items():
+            setattr(run, key, value)
         await self.repo.db.commit()
-        await self.repo.db.refresh(created)
+        await self.repo.db.refresh(run)
+        return run
+
+    async def delete(self, run_id: str) -> None:
+        run = await self.get_by_uuid(run_id)
+        await self.repo.delete(run)
+
+    async def trigger(
+        self, run_id: str, payload: RunTriggerRequest | None = None
+    ) -> tuple[RunTrigger, Run, dict]:
+        run = await self.get_by_uuid(run_id)
+
+        # Mark previous triggers as not latest
+        await self.trigger_repo.mark_previous_not_latest(run.id)
+
+        # Create new execution trigger record
+        trigger = RunTrigger(
+            run_id=run.id,
+            trigger_method=payload.trigger_method if payload else "manual",
+            status="pending",
+            is_latest=True,
+        )
+        created_trigger = await self.trigger_repo.create(trigger)
+
+        # Ensure commit before background execution
+        await self.repo.db.commit()
+        await self.repo.db.refresh(created_trigger)
+
         options = payload.model_dump() if payload else {}
-        return created, options
+        return created_trigger, run, options
 
-    async def get_agent_summaries(self, run_id: str) -> list[dict]:
-        _ = await self.get_by_id(run_id)
-        return await self.repo.get_agent_summaries(run_id)
-
-    async def get_agent_activity(
-        self, run_id: str, agent_type: AgentType, limit: int = 200
-    ) -> list[dict]:
-        _ = await self.get_by_id(run_id)
-        return await self.repo.get_agent_activity(run_id, agent_type, limit=limit)
-
-    async def get_agent_logs(
-        self, run_id: str, agent_type: AgentType, limit: int = 300
-    ) -> list[dict]:
-        _ = await self.get_by_id(run_id)
-        return await self.repo.get_agent_logs(run_id, agent_type, limit=limit)
+    async def get_triggers_for_run(
+        self, run_id: str, limit: int = 50
+    ) -> Sequence[RunTrigger]:
+        run = await self.get_by_uuid(run_id)
+        return await self.trigger_repo.get_triggers_for_run(run.id, limit=limit)

@@ -59,7 +59,12 @@ class PDFRenderer:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         digest_date = digest_data.get("date", datetime.now().date())
-        filename = f"zentivra_digest_{digest_date}.pdf"
+        digest_title = digest_data.get("digest_title", "")
+        if digest_title:
+            safe_title = self._safe_filename(digest_title)[:80]
+            filename = f"zentivra_{digest_date}_{safe_title}.pdf"
+        else:
+            filename = f"zentivra_digest_{digest_date}.pdf"
         pdf_path = output_dir / filename
 
         logger.info("pdf_render_start output=%s", str(pdf_path))
@@ -68,16 +73,24 @@ class PDFRenderer:
         # Render HTML from template
         html_content = self._render_html(prepared_digest)
 
+        # Always save the HTML version for email / web viewing
+        html_filename = filename.replace(".pdf", ".html")
+        html_path = output_dir / html_filename
+        html_path.write_text(html_content, encoding="utf-8")
+
         # Convert HTML to PDF
+        pdf_generated = False
         try:
             from weasyprint import HTML
             HTML(string=html_content).write_pdf(str(pdf_path))
+            pdf_generated = True
             logger.info("pdf_render_complete path=%s size_kb=%d", str(pdf_path), pdf_path.stat().st_size // 1024)
         except Exception as e:
             # Windows environments frequently miss WeasyPrint native libs.
             logger.warning("pdf_render_weasyprint_failed error=%s", str(e))
             try:
                 self._render_with_fpdf(prepared_digest, pdf_path)
+                pdf_generated = True
                 logger.info(
                     "pdf_render_fpdf_fallback_complete path=%s size_kb=%d",
                     str(pdf_path),
@@ -88,9 +101,9 @@ class PDFRenderer:
                     "pdf_render_fallback_error error=%s",
                     str(fallback_error),
                 )
-                html_path = output_dir / f"zentivra_digest_{digest_date}.html"
-                html_path.write_text(html_content, encoding="utf-8")
-                pdf_path = html_path
+
+        if not pdf_generated:
+            pdf_path = html_path
 
         return str(pdf_path)
 
@@ -103,6 +116,7 @@ class PDFRenderer:
         context = {
             "date": str(digest_date),
             "date_formatted": digest_date.strftime("%B %d, %Y") if hasattr(digest_date, "strftime") else str(digest_date),
+            "digest_title": digest_data.get("digest_title", ""),
             "executive_summary": digest_data.get("executive_summary", "No summary available."),
             "executive_summary_points": digest_data.get("executive_summary_points", []),
             "sections": digest_data.get("sections", {}),

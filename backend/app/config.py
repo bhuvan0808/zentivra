@@ -42,9 +42,12 @@ class Settings(BaseSettings):
 
     # ── Database ──────────────────────────────────────────────────────────
     database_url: str = "sqlite+aiosqlite:///./zentivra.db"
+    database_echo: bool = False
 
     # ── LLM Providers ────────────────────────────────────────────────────
-    llm_provider: Optional[str] = None  # Optional explicit override: openrouter/groq/gemini/openai/anthropic
+    llm_provider: Optional[str] = (
+        None  # Optional explicit override: openrouter/groq/gemini/openai/anthropic
+    )
     gemini_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
@@ -81,6 +84,10 @@ class Settings(BaseSettings):
     # ── CORS ──────────────────────────────────────────────────────────────
     allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
+    # ── Auth / Redis ──────────────────────────────────────────────────────
+    redis_url: str = "redis://localhost:6379/0"
+    auth_token_ttl_hours: int = 2
+
     # ── App Settings ──────────────────────────────────────────────────────
     app_env: AppEnv = AppEnv.DEVELOPMENT
     log_level: str = "INFO"
@@ -113,13 +120,21 @@ class Settings(BaseSettings):
     def active_llm_provider(self) -> str:
         """Determine which LLM provider is configured."""
         configured = {
-            "groq": bool(self.groq_api_key and self.groq_api_key != "your-groq-api-key-here"),
+            "groq": bool(
+                self.groq_api_key and self.groq_api_key != "your-groq-api-key-here"
+            ),
             "openrouter": bool(
                 self.openrouter_api_key
                 and self.openrouter_api_key != "your-openrouter-api-key-here"
             ),
-            "gemini": bool(self.gemini_api_key and self.gemini_api_key != "your-gemini-api-key-here"),
-            "openai": bool(self.openai_api_key and self.openai_api_key != "your-openai-api-key-here"),
+            "gemini": bool(
+                self.gemini_api_key
+                and self.gemini_api_key != "your-gemini-api-key-here"
+            ),
+            "openai": bool(
+                self.openai_api_key
+                and self.openai_api_key != "your-openai-api-key-here"
+            ),
             "anthropic": bool(
                 self.anthropic_api_key
                 and self.anthropic_api_key != "your-anthropic-api-key-here"
