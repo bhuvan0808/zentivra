@@ -47,8 +47,7 @@ async def lifespan(app: FastAPI):
     from app.scheduler.scheduler import start_scheduler
 
     try:
-        start_scheduler()
-        logger.info("scheduler_started")
+        await start_scheduler()
     except Exception as e:
         logger.warning("scheduler_start_failed error=%s", str(e))
 

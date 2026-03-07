@@ -135,18 +135,19 @@ export default function ConfigureRunPage() {
   }
 
   function encodeFrequency(): string {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const freq = params.crawl_frequency;
     if (freq === "weekly") {
       const days = Array.from(scheduleDays).join(",");
-      return `weekly|${scheduleTime}|${days}`;
+      return `weekly|${scheduleTime}|${days}|${tz}`;
     }
     if (freq === "monthly") {
       const dates = Array.from(scheduleDates)
         .sort((a, b) => a - b)
         .join(",");
-      return `monthly|${scheduleTime}|${dates}`;
+      return `monthly|${scheduleTime}|${dates}|${tz}`;
     }
-    return `daily|${scheduleTime}`;
+    return `daily|${scheduleTime}|${tz}`;
   }
 
   useEffect(() => {

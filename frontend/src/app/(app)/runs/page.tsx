@@ -1004,17 +1004,18 @@ function RunEditDialog({
   }
 
   function encodeFrequency(): string {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (crawlFrequency === "weekly") {
       const days = Array.from(scheduleDays).join(",");
-      return `weekly|${scheduleTime}|${days}`;
+      return `weekly|${scheduleTime}|${days}|${tz}`;
     }
     if (crawlFrequency === "monthly") {
       const dates = Array.from(scheduleDates)
         .sort((a, b) => a - b)
         .join(",");
-      return `monthly|${scheduleTime}|${dates}`;
+      return `monthly|${scheduleTime}|${dates}|${tz}`;
     }
-    return `daily|${scheduleTime}`;
+    return `daily|${scheduleTime}|${tz}`;
   }
 
   function addRecipient() {
