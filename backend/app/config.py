@@ -82,7 +82,9 @@ class Settings(BaseSettings):
     timezone: str = "Asia/Kolkata"
 
     # ── CORS ──────────────────────────────────────────────────────────────
-    allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    allowed_origins: str = (
+        "http://localhost:3000,http://127.0.0.1:3000,https://zentivra.vercel.app/"
+    )
 
     # ── Auth / Redis ──────────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
