@@ -2,7 +2,7 @@
 Deduplication Engine - Detect and cluster duplicate/similar findings.
 
 Uses sentence-transformers for semantic similarity and
-agglomerative clustering for topic grouping.
+agglomerative clustering for topic grouping..
 """
 
 import hashlib
