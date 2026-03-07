@@ -25,17 +25,30 @@
 
 ## USERS
 
-Stores registered user accounts and their current session state.
+Stores registered user accounts. Session/auth state is tracked in `user_sessions`.
 
 | Column            | Type          | Constraints                           |
 |-------------------|---------------|---------------------------------------|
 | `username`        | VARCHAR(100)  | UNIQUE, NOT NULL                      |
 | `password_hash`   | VARCHAR(255)  | NOT NULL                              |
 | `display_name`    | VARCHAR(150)  | NOT NULL                              |
-| `last_login`      | DATETIME (tz) | NULLABLE                              |
-| `last_logout`     | DATETIME (tz) | NULLABLE                              |
-| `auth_token`      | VARCHAR(36)   | NULLABLE — most recent session UUID   |
-| `token_expires_at`| DATETIME (tz) | NULLABLE                              |
+
+---
+
+## USER\_SESSIONS
+
+Tracks individual login sessions per user. Supports concurrent multi-device logins. Active sessions are also cached in Redis (`session:{auth_token}` → `user_id`) with TTL-based auto-expiry.
+
+| Column            | Type          | Constraints                                       |
+|-------------------|---------------|----------------------------------------------------|
+| `user_id`         | INTEGER       | NOT NULL, FK → `users.id`, INDEXED                |
+| `auth_token`      | VARCHAR(36)   | UNIQUE, NOT NULL — the session bearer token        |
+| `login_at`        | DATETIME (tz) | NOT NULL                                           |
+| `logout_at`       | DATETIME (tz) | NULLABLE — NULL while session is active            |
+| `expires_at`      | DATETIME (tz) | NOT NULL — TTL-based, defaults to 2 hours          |
+| `ip_address`      | VARCHAR(45)   | NULLABLE — client IP for device tracking           |
+| `user_agent`      | VARCHAR(500)  | NULLABLE — browser/device info                     |
+| `is_active`       | BOOLEAN       | NOT NULL, DEFAULT TRUE — FALSE after logout/expiry |
 
 ---
 

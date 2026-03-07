@@ -1,6 +1,6 @@
 # Zentivra Backend API - cURL Examples & Response Reference
 
-This file contains cURL requests with **both success and error responses** for every endpoint.
+This file contains cURL requests with **success and error responses** for every endpoint.
 Use this as a contract reference when building UI components.
 
 ## Response Shape Convention
@@ -31,6 +31,8 @@ Except **422 Validation Errors**, which return:
 ```
 
 **UI handling rule of thumb:**
+- `401` errors: redirect to login page, preserve the current route for post-login navigation.
+- `403` errors: show `response.detail` (account disabled, etc.).
 - `4xx` errors: show `response.detail` (string) directly to the user.
 - `422` errors: `response.detail` is an array -- map each item's `msg` to the field at `loc`.
 - `5xx` errors: show a generic fallback like "Something went wrong. Please try again."
@@ -44,7 +46,192 @@ BASE_URL="http://localhost:8000"
 
 ---
 
-## Health Endpoints
+## Auth API (`/api/auth`)
+
+Auth endpoints are **public** -- no Authorization header required.
+
+### 1) Signup
+
+```bash
+curl -X POST "$BASE_URL/api/auth/signup" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "kaustubh",
+    "password": "securePass123",
+    "display_name": "Kaustubh Paturi"
+  }'
+```
+
+**Success (201):**
+
+```json
+{
+  "user_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "username": "kaustubh",
+  "display_name": "Kaustubh Paturi",
+  "auth_token": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "expires_at": "2026-03-05T14:30:00+00:00"
+}
+```
+
+**Error -- username already taken (409):**
+
+```json
+{
+  "detail": "Username already taken"
+}
+```
+
+**Error -- validation failure (422):**
+
+```json
+{
+  "detail": [
+    {
+      "type": "string_too_short",
+      "loc": ["body", "username"],
+      "msg": "String should have at least 3 characters",
+      "input": "ab"
+    }
+  ]
+}
+```
+
+### 2) Login
+
+```bash
+curl -X POST "$BASE_URL/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "kaustubh",
+    "password": "securePass123"
+  }'
+```
+
+**Success (200):**
+
+```json
+{
+  "user_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "username": "kaustubh",
+  "display_name": "Kaustubh Paturi",
+  "auth_token": "9c8d7e6f-5a4b-3c2d-1e0f-abcdef123456",
+  "expires_at": "2026-03-05T14:30:00+00:00"
+}
+```
+
+**Error -- invalid credentials (401):**
+
+```json
+{
+  "detail": "Invalid username or password"
+}
+```
+
+**Error -- account disabled (403):**
+
+```json
+{
+  "detail": "Account is disabled"
+}
+```
+
+### 3) Logout
+
+```bash
+curl -X POST "$BASE_URL/api/auth/logout" \
+  -H "Authorization: Bearer f47ac10b-58cc-4372-a567-0e02b2c3d479"
+```
+
+**Success (200):**
+
+```json
+{
+  "message": "Logged out"
+}
+```
+
+**Error -- missing or invalid token (401):**
+
+```json
+{
+  "detail": "Invalid or expired session"
+}
+```
+
+### 4) Get Current User
+
+```bash
+curl -X GET "$BASE_URL/api/auth/me" \
+  -H "Authorization: Bearer f47ac10b-58cc-4372-a567-0e02b2c3d479"
+```
+
+**Success (200):**
+
+```json
+{
+  "user_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "username": "kaustubh",
+  "display_name": "Kaustubh Paturi",
+  "last_login": "2026-03-05T12:30:00+00:00",
+  "created_at": "2026-03-05T08:00:00+00:00"
+}
+```
+
+**Error -- expired session (401):**
+
+```json
+{
+  "detail": "Session expired"
+}
+```
+
+---
+
+## Authorization Header (for all protected routes)
+
+All endpoints below require the `Authorization` header:
+
+```
+Authorization: Bearer <auth_token>
+```
+
+If missing or invalid, the response is:
+
+**Error -- missing header (422):**
+
+```json
+{
+  "detail": [
+    {
+      "type": "missing",
+      "loc": ["header", "authorization"],
+      "msg": "Field required",
+      "input": null
+    }
+  ]
+}
+```
+
+**Error -- bad format (401):**
+
+```json
+{
+  "detail": "Invalid authorization header format"
+}
+```
+
+**Error -- expired or invalid token (401):**
+
+```json
+{
+  "detail": "Invalid or expired session"
+}
+```
+
+---
+
+## Health Endpoints (public)
 
 ### 1) Root Health Check
 
@@ -105,12 +292,13 @@ curl -X GET "$BASE_URL/scheduler"
 
 ---
 
-## Sources API (`/api/sources`)
+## Sources API (`/api/sources`) -- Protected
 
 ### 1) List Sources
 
 ```bash
-curl -X GET "$BASE_URL/api/sources"
+curl -X GET "$BASE_URL/api/sources" \
+  -H "Authorization: Bearer <auth_token>"
 ```
 
 **Success (200):**
@@ -118,33 +306,30 @@ curl -X GET "$BASE_URL/api/sources"
 ```json
 [
   {
-    "id": "e5b5adf6-f19f-4fbe-8f64-0aeecf0f4b2c",
-    "name": "OpenAI Blog",
+    "source_id": "e5b5adf6-f19f-4fbe-8f64-0aeecf0f4b2c",
+    "source_name": "openai-blog",
+    "display_name": "OpenAI Blog",
     "agent_type": "model_provider",
     "url": "https://openai.com/blog",
-    "feed_url": "https://openai.com/blog/rss.xml",
-    "css_selectors": null,
-    "keywords": ["gpt", "api", "release"],
-    "rate_limit_rpm": 10,
-    "crawl_depth": 1,
-    "enabled": true,
+    "is_enabled": true,
     "created_at": "2026-03-05T08:00:00+00:00",
     "updated_at": "2026-03-05T08:00:00+00:00"
   }
 ]
 ```
 
-Returns an empty array `[]` when no sources exist (not an error).
+Returns empty array `[]` when no sources exist.
 
 ### 2) List Sources (with filters)
 
 ```bash
-curl -X GET "$BASE_URL/api/sources?agent_type=model_provider&enabled=true"
+curl -X GET "$BASE_URL/api/sources?agent_type=model_provider&enabled=true" \
+  -H "Authorization: Bearer <auth_token>"
 ```
 
-**Success (200):** same shape as above, filtered rows. Empty array if nothing matches.
+**Success (200):** same shape as above, filtered. Empty array if nothing matches.
 
-**Error -- invalid `agent_type` value (422):**
+**Error -- invalid agent_type (422):**
 
 ```json
 {
@@ -163,17 +348,13 @@ curl -X GET "$BASE_URL/api/sources?agent_type=model_provider&enabled=true"
 
 ```bash
 curl -X POST "$BASE_URL/api/sources" \
+  -H "Authorization: Bearer <auth_token>" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "Anthropic News",
+    "source_name": "anthropic-news",
+    "display_name": "Anthropic News",
     "agent_type": "model_provider",
-    "url": "https://www.anthropic.com/news",
-    "feed_url": null,
-    "css_selectors": {"article": ".news-item"},
-    "keywords": ["claude", "model", "api"],
-    "rate_limit_rpm": 10,
-    "crawl_depth": 1,
-    "enabled": true
+    "url": "https://www.anthropic.com/news"
   }'
 ```
 
@@ -181,16 +362,12 @@ curl -X POST "$BASE_URL/api/sources" \
 
 ```json
 {
-  "id": "31e2c1b1-57dc-4b07-a660-2427f5d6b772",
-  "name": "Anthropic News",
+  "source_id": "31e2c1b1-57dc-4b07-a660-2427f5d6b772",
+  "source_name": "anthropic-news",
+  "display_name": "Anthropic News",
   "agent_type": "model_provider",
   "url": "https://www.anthropic.com/news",
-  "feed_url": null,
-  "css_selectors": {"article": ".news-item"},
-  "keywords": ["claude", "model", "api"],
-  "rate_limit_rpm": 10,
-  "crawl_depth": 1,
-  "enabled": true,
+  "is_enabled": true,
   "created_at": "2026-03-05T10:15:41.124000+00:00",
   "updated_at": "2026-03-05T10:15:41.124000+00:00"
 }
@@ -203,7 +380,7 @@ curl -X POST "$BASE_URL/api/sources" \
   "detail": [
     {
       "type": "missing",
-      "loc": ["body", "name"],
+      "loc": ["body", "source_name"],
       "msg": "Field required",
       "input": {}
     }
@@ -211,40 +388,11 @@ curl -X POST "$BASE_URL/api/sources" \
 }
 ```
 
-**Error -- name too short (422):**
-
-```json
-{
-  "detail": [
-    {
-      "type": "string_too_short",
-      "loc": ["body", "name"],
-      "msg": "String should have at least 1 character",
-      "input": ""
-    }
-  ]
-}
-```
-
-**Error -- rate_limit_rpm out of range (422):**
-
-```json
-{
-  "detail": [
-    {
-      "type": "greater_than_equal",
-      "loc": ["body", "rate_limit_rpm"],
-      "msg": "Input should be greater than or equal to 1",
-      "input": 0
-    }
-  ]
-}
-```
-
-### 4) Get Source by ID
+### 4) Get Source by UUID
 
 ```bash
-curl -X GET "$BASE_URL/api/sources/31e2c1b1-57dc-4b07-a660-2427f5d6b772"
+curl -X GET "$BASE_URL/api/sources/31e2c1b1-57dc-4b07-a660-2427f5d6b772" \
+  -H "Authorization: Bearer <auth_token>"
 ```
 
 **Success (200):** same shape as the create response above.
@@ -261,10 +409,11 @@ curl -X GET "$BASE_URL/api/sources/31e2c1b1-57dc-4b07-a660-2427f5d6b772"
 
 ```bash
 curl -X PUT "$BASE_URL/api/sources/31e2c1b1-57dc-4b07-a660-2427f5d6b772" \
+  -H "Authorization: Bearer <auth_token>" \
   -H "Content-Type: application/json" \
   -d '{
-    "enabled": false,
-    "rate_limit_rpm": 5
+    "is_enabled": false,
+    "display_name": "Anthropic News (Paused)"
   }'
 ```
 
@@ -272,16 +421,12 @@ curl -X PUT "$BASE_URL/api/sources/31e2c1b1-57dc-4b07-a660-2427f5d6b772" \
 
 ```json
 {
-  "id": "31e2c1b1-57dc-4b07-a660-2427f5d6b772",
-  "name": "Anthropic News",
+  "source_id": "31e2c1b1-57dc-4b07-a660-2427f5d6b772",
+  "source_name": "anthropic-news",
+  "display_name": "Anthropic News (Paused)",
   "agent_type": "model_provider",
   "url": "https://www.anthropic.com/news",
-  "feed_url": null,
-  "css_selectors": {"article": ".news-item"},
-  "keywords": ["claude", "model", "api"],
-  "rate_limit_rpm": 5,
-  "crawl_depth": 1,
-  "enabled": false,
+  "is_enabled": false,
   "created_at": "2026-03-05T10:15:41.124000+00:00",
   "updated_at": "2026-03-05T10:18:10.332000+00:00"
 }
@@ -295,25 +440,11 @@ curl -X PUT "$BASE_URL/api/sources/31e2c1b1-57dc-4b07-a660-2427f5d6b772" \
 }
 ```
 
-**Error -- invalid field value (422):**
-
-```json
-{
-  "detail": [
-    {
-      "type": "greater_than_equal",
-      "loc": ["body", "crawl_depth"],
-      "msg": "Input should be greater than or equal to 1",
-      "input": 0
-    }
-  ]
-}
-```
-
 ### 6) Delete Source
 
 ```bash
-curl -X DELETE "$BASE_URL/api/sources/31e2c1b1-57dc-4b07-a660-2427f5d6b772" -i
+curl -X DELETE "$BASE_URL/api/sources/31e2c1b1-57dc-4b07-a660-2427f5d6b772" \
+  -H "Authorization: Bearer <auth_token>" -i
 ```
 
 **Success:** HTTP `204 No Content` (empty body).
@@ -328,12 +459,13 @@ curl -X DELETE "$BASE_URL/api/sources/31e2c1b1-57dc-4b07-a660-2427f5d6b772" -i
 
 ---
 
-## Runs API (`/api/runs`)
+## Runs API (`/api/runs`) -- Protected
 
 ### 1) List Runs
 
 ```bash
-curl -X GET "$BASE_URL/api/runs?limit=20"
+curl -X GET "$BASE_URL/api/runs?limit=20" \
+  -H "Authorization: Bearer <auth_token>"
 ```
 
 **Success (200):**
@@ -341,91 +473,49 @@ curl -X GET "$BASE_URL/api/runs?limit=20"
 ```json
 [
   {
-    "id": "8ef7675f-a7bb-4979-b736-53fa775f06a9",
-    "started_at": "2026-03-05T10:20:00.000000+00:00",
-    "completed_at": "2026-03-05T10:23:44.000000+00:00",
-    "status": "completed",
-    "agent_statuses": {
-      "competitor": "completed (6 findings)",
-      "model_provider": "completed (4 findings)",
-      "research": "completed (3 findings)",
-      "hf_benchmark": "completed (2 findings)"
-    },
-    "total_findings": 15,
-    "error_log": null,
-    "log_path": "data/logs/8ef7675f-a7bb-4979-b736-53fa775f06a9.ndjson",
-    "triggered_by": "manual"
+    "run_id": "8ef7675f-a7bb-4979-b736-53fa775f06a9",
+    "run_name": "Daily AI Scan",
+    "description": "Nightly crawl of all model provider sources",
+    "enable_pdf_gen": true,
+    "enable_email_alert": false,
+    "sources": ["e5b5adf6-f19f-4fbe-8f64-0aeecf0f4b2c"],
+    "crawl_frequency": "daily",
+    "crawl_depth": 2,
+    "keywords": ["gpt", "llama"],
+    "is_enabled": true,
+    "created_at": "2026-03-05T10:20:00+00:00",
+    "updated_at": "2026-03-05T10:20:00+00:00"
   }
 ]
 ```
 
 Returns empty array `[]` when no runs exist.
 
-**`status` field values:** `"pending"`, `"running"`, `"completed"`, `"failed"`, `"partial"`
-
-### 2) Get Run by ID
+### 2) Create Run
 
 ```bash
-curl -X GET "$BASE_URL/api/runs/8ef7675f-a7bb-4979-b736-53fa775f06a9"
+curl -X POST "$BASE_URL/api/runs" \
+  -H "Authorization: Bearer <auth_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "run_name": "Weekly Research",
+    "description": "Research scout sweep",
+    "sources": ["e5b5adf6-f19f-4fbe-8f64-0aeecf0f4b2c"],
+    "crawl_depth": 2,
+    "keywords": ["reasoning", "agent"]
+  }'
 ```
 
-**Success (200) -- while running:**
+**Success (201):** same shape as list item above.
 
-```json
-{
-  "id": "8ef7675f-a7bb-4979-b736-53fa775f06a9",
-  "started_at": "2026-03-05T10:24:11.000000+00:00",
-  "completed_at": null,
-  "status": "running",
-  "agent_statuses": {
-    "competitor": "completed (5 findings)",
-    "model_provider": "pending",
-    "research": "pending",
-    "hf_benchmark": "pending"
-  },
-  "total_findings": 0,
-  "error_log": null,
-  "log_path": "data/logs/8ef7675f-a7bb-4979-b736-53fa775f06a9.ndjson",
-  "triggered_by": "manual"
-}
+### 3) Get Run by UUID
+
+```bash
+curl -X GET "$BASE_URL/api/runs/8ef7675f-a7bb-4979-b736-53fa775f06a9" \
+  -H "Authorization: Bearer <auth_token>"
 ```
 
-**Success (200) -- failed run (no LLM configured):**
-
-```json
-{
-  "id": "8ef7675f-a7bb-4979-b736-53fa775f06a9",
-  "started_at": "2026-03-05T10:24:11.000000+00:00",
-  "completed_at": "2026-03-05T10:24:55.000000+00:00",
-  "status": "failed",
-  "agent_statuses": null,
-  "total_findings": 0,
-  "error_log": "No LLM provider configured",
-  "log_path": "data/logs/8ef7675f-a7bb-4979-b736-53fa775f06a9.ndjson",
-  "triggered_by": "manual"
-}
-```
-
-**Success (200) -- partial run (some agents failed):**
-
-```json
-{
-  "id": "8ef7675f-a7bb-4979-b736-53fa775f06a9",
-  "started_at": "2026-03-05T10:24:11.000000+00:00",
-  "completed_at": "2026-03-05T10:28:33.000000+00:00",
-  "status": "partial",
-  "agent_statuses": {
-    "competitor": "completed (6 findings)",
-    "model_provider": "completed (4 findings)",
-    "research": "failed: Timeout fetching arxiv RSS after 30s",
-    "hf_benchmark": "completed (2 findings)"
-  },
-  "total_findings": 12,
-  "error_log": null,
-  "log_path": "data/logs/8ef7675f-a7bb-4979-b736-53fa775f06a9.ndjson",
-  "triggered_by": "manual"
-}
-```
+**Success (200):** same shape as list item above.
 
 **Error -- not found (404):**
 
@@ -435,92 +525,53 @@ curl -X GET "$BASE_URL/api/runs/8ef7675f-a7bb-4979-b736-53fa775f06a9"
 }
 ```
 
-### 3) Trigger Run
+### 4) Update Run
 
 ```bash
-curl -X POST "$BASE_URL/api/runs/trigger"
+curl -X PUT "$BASE_URL/api/runs/8ef7675f-a7bb-4979-b736-53fa775f06a9" \
+  -H "Authorization: Bearer <auth_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "is_enabled": false,
+    "crawl_depth": 3
+  }'
+```
+
+**Success (200):** full run object with updated fields.
+
+### 5) Delete Run
+
+```bash
+curl -X DELETE "$BASE_URL/api/runs/8ef7675f-a7bb-4979-b736-53fa775f06a9" \
+  -H "Authorization: Bearer <auth_token>" -i
+```
+
+**Success:** HTTP `204 No Content` (empty body).
+
+### 6) Trigger a Run
+
+```bash
+curl -X POST "$BASE_URL/api/runs/8ef7675f-a7bb-4979-b736-53fa775f06a9/trigger" \
+  -H "Authorization: Bearer <auth_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "trigger_method": "manual",
+    "max_sources_per_agent": 3
+  }'
 ```
 
 **Success (202):**
 
 ```json
 {
-  "run_id": "2ac8d104-9a3e-4912-9690-b3576e909676",
+  "run_trigger_id": "d3e4f5a6-b7c8-9d0e-f1a2-b3c4d5e6f7a8",
+  "run_id": "8ef7675f-a7bb-4979-b736-53fa775f06a9",
   "message": "Run triggered successfully. Pipeline executing in background.",
   "status": "pending"
 }
 ```
 
-**Error -- another run is already active (409):**
-
-```json
-{
-  "detail": "Run 8ef7675f-a7bb-4979-b736-53fa775f06a9 is already in progress."
-}
-```
-
-### 4) Get Run Execution Logs
-
-```bash
-curl -X GET "$BASE_URL/api/runs/2ac8d104-9a3e-4912-9690-b3576e909676/logs"
-```
-
-With filters:
-
-```bash
-curl -X GET "$BASE_URL/api/runs/2ac8d104-9a3e-4912-9690-b3576e909676/logs?agent=competitor&level=ERROR&tail=50"
-```
-
-**Success (200):**
-
-```json
-[
-  {
-    "ts": "2026-03-05T10:20:01.123000+00:00",
-    "run_id": "2ac8d104-9a3e-4912-9690-b3576e909676",
-    "level": "INFO",
-    "agent": null,
-    "phase": "init",
-    "event": "pipeline_run_start"
-  },
-  {
-    "ts": "2026-03-05T10:20:01.234000+00:00",
-    "run_id": "2ac8d104-9a3e-4912-9690-b3576e909676",
-    "level": "INFO",
-    "agent": "competitor",
-    "phase": "fetch",
-    "event": "url_fetched",
-    "url": "https://openai.com/blog",
-    "status_code": 200,
-    "content_length": 48210,
-    "method": "httpx",
-    "progress": "1/3"
-  },
-  {
-    "ts": "2026-03-05T10:20:05.567000+00:00",
-    "run_id": "2ac8d104-9a3e-4912-9690-b3576e909676",
-    "level": "INFO",
-    "agent": "competitor",
-    "phase": "finding",
-    "event": "finding_created",
-    "title": "OpenAI launches GPT-5 Turbo with native tool use",
-    "confidence": 0.92,
-    "category": "models"
-  },
-  {
-    "ts": "2026-03-05T10:20:12.890000+00:00",
-    "run_id": "2ac8d104-9a3e-4912-9690-b3576e909676",
-    "level": "ERROR",
-    "agent": "research",
-    "phase": "error",
-    "event": "url_processing_error",
-    "url": "https://arxiv.org/rss/cs.CL",
-    "error": "Timeout: connection timed out after 30s"
-  }
-]
-```
-
-Returns empty array `[]` when no log entries match the filters.
+**Note:** The body is optional. If omitted, defaults to `trigger_method: "manual"`.
 
 **Error -- run not found (404):**
 
@@ -530,30 +581,19 @@ Returns empty array `[]` when no log entries match the filters.
 }
 ```
 
-**Error -- no logs available (404):**
+**Error -- run is disabled (400):**
 
 ```json
 {
-  "detail": "No logs available for this run"
+  "detail": "Run is disabled"
 }
 ```
 
-**Error -- log file missing from disk (404):**
-
-```json
-{
-  "detail": "Log file not found on disk"
-}
-```
-
----
-
-## Findings API (`/api/findings`)
-
-### 1) List Findings
+### 7) List Trigger History for a Run
 
 ```bash
-curl -X GET "$BASE_URL/api/findings?page=1&page_size=20"
+curl -X GET "$BASE_URL/api/runs/8ef7675f-a7bb-4979-b736-53fa775f06a9/triggers?limit=10" \
+  -H "Authorization: Bearer <auth_token>"
 ```
 
 **Success (200):**
@@ -561,36 +601,141 @@ curl -X GET "$BASE_URL/api/findings?page=1&page_size=20"
 ```json
 [
   {
-    "id": "c7219ce4-15f8-4f53-ad74-c84ef86f7549",
+    "run_trigger_id": "d3e4f5a6-b7c8-9d0e-f1a2-b3c4d5e6f7a8",
     "run_id": "8ef7675f-a7bb-4979-b736-53fa775f06a9",
-    "source_id": "e5b5adf6-f19f-4fbe-8f64-0aeecf0f4b2c",
-    "title": "Provider launched new multimodal model",
-    "date_detected": "2026-03-05T10:21:40.000000+00:00",
-    "source_url": "https://example.com/ai-news/new-model",
-    "publisher": "Example AI",
+    "trigger_method": "manual",
+    "status": "completed",
+    "is_latest": true,
+    "created_at": "2026-03-05T11:00:00+00:00",
+    "updated_at": "2026-03-05T11:05:00+00:00",
+    "findings_count": 12,
+    "snapshots_count": 5
+  }
+]
+```
+
+Returns empty array `[]` when no triggers exist for this run.
+
+---
+
+## Run Triggers API (`/api/run-triggers`) -- Protected
+
+### 1) Get Trigger by UUID
+
+```bash
+curl -X GET "$BASE_URL/api/run-triggers/d3e4f5a6-b7c8-9d0e-f1a2-b3c4d5e6f7a8" \
+  -H "Authorization: Bearer <auth_token>"
+```
+
+**Success (200):**
+
+```json
+{
+  "run_trigger_id": "d3e4f5a6-b7c8-9d0e-f1a2-b3c4d5e6f7a8",
+  "run_id": "8ef7675f-a7bb-4979-b736-53fa775f06a9",
+  "trigger_method": "manual",
+  "status": "completed",
+  "is_latest": true,
+  "created_at": "2026-03-05T11:00:00+00:00",
+  "updated_at": "2026-03-05T11:05:00+00:00",
+  "findings_count": 12,
+  "snapshots_count": 5
+}
+```
+
+**Error -- not found (404):**
+
+```json
+{
+  "detail": "Run trigger not found"
+}
+```
+
+### 2) List Findings for a Trigger
+
+```bash
+curl -X GET "$BASE_URL/api/run-triggers/d3e4f5a6-b7c8-9d0e-f1a2-b3c4d5e6f7a8/findings?limit=50" \
+  -H "Authorization: Bearer <auth_token>"
+```
+
+**Success (200):**
+
+```json
+[
+  {
+    "finding_id": "c7219ce4-15f8-4f53-ad74-c84ef86f7549",
+    "content": "Full text content...",
+    "summary": "New model supports image and text reasoning.",
+    "run_trigger_id": "d3e4f5a6-b7c8-9d0e-f1a2-b3c4d5e6f7a8",
+    "src_url": "https://example.com/ai-news/new-model",
     "category": "models",
-    "summary_short": "New model supports image and text reasoning.",
-    "summary_long": "Detailed summary of release, capabilities, and pricing details.",
-    "why_it_matters": "Improves enterprise workflow automation quality and speed.",
-    "evidence": {"claims": ["SOTA on benchmark X"]},
     "confidence": 0.91,
-    "tags": ["model-release", "multimodal"],
-    "entities": {"companies": ["Example AI"], "models": ["Model-X"], "datasets": []},
-    "impact_score": 8.7,
-    "is_duplicate": false,
-    "cluster_id": null
+    "created_at": "2026-03-05T11:03:00+00:00"
+  }
+]
+```
+
+Returns empty array `[]` when no findings exist.
+
+### 3) List Snapshots for a Trigger
+
+```bash
+curl -X GET "$BASE_URL/api/run-triggers/d3e4f5a6-b7c8-9d0e-f1a2-b3c4d5e6f7a8/snapshots" \
+  -H "Authorization: Bearer <auth_token>"
+```
+
+**Success (200):**
+
+```json
+[
+  {
+    "snapshot_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "source_name": "OpenAI Blog",
+    "total_findings": 3,
+    "summary": "model_provider: 3 findings from OpenAI Blog",
+    "status": "completed",
+    "created_at": "2026-03-05T11:03:00+00:00"
+  }
+]
+```
+
+Returns empty array `[]` when no snapshots exist.
+
+---
+
+## Findings API (`/api/findings`) -- Protected
+
+### 1) List Findings
+
+```bash
+curl -X GET "$BASE_URL/api/findings?page=1&page_size=20" \
+  -H "Authorization: Bearer <auth_token>"
+```
+
+**Success (200):**
+
+```json
+[
+  {
+    "finding_id": "c7219ce4-15f8-4f53-ad74-c84ef86f7549",
+    "content": "Full text content of the finding...",
+    "summary": "New model supports image and text reasoning.",
+    "run_trigger_id": "d3e4f5a6-b7c8-9d0e-f1a2-b3c4d5e6f7a8",
+    "src_url": "https://example.com/ai-news/new-model",
+    "category": "models",
+    "confidence": 0.91,
+    "created_at": "2026-03-05T10:21:40+00:00"
   }
 ]
 ```
 
 Returns empty array `[]` when no findings match.
 
-**`category` field values:** `"models"`, `"apis"`, `"pricing"`, `"benchmarks"`, `"safety"`, `"tooling"`, `"research"`, `"other"`
-
-### 2) List Findings (with filters + search)
+### 2) List Findings (with filters)
 
 ```bash
-curl -X GET "$BASE_URL/api/findings?category=models&min_confidence=0.7&search=multimodal&include_duplicates=false&page=1&page_size=10"
+curl -X GET "$BASE_URL/api/findings?category=models&min_confidence=0.7&page=1&page_size=10" \
+  -H "Authorization: Bearer <auth_token>"
 ```
 
 **Success (200):** same shape as above, filtered.
@@ -610,25 +755,11 @@ curl -X GET "$BASE_URL/api/findings?category=models&min_confidence=0.7&search=mu
 }
 ```
 
-**Error -- min_confidence out of range (422):**
-
-```json
-{
-  "detail": [
-    {
-      "type": "less_than_equal",
-      "loc": ["query", "min_confidence"],
-      "msg": "Input should be less than or equal to 1",
-      "input": 5.0
-    }
-  ]
-}
-```
-
 ### 3) Findings Stats
 
 ```bash
-curl -X GET "$BASE_URL/api/findings/stats"
+curl -X GET "$BASE_URL/api/findings/stats" \
+  -H "Authorization: Bearer <auth_token>"
 ```
 
 **Success (200):**
@@ -641,34 +772,18 @@ curl -X GET "$BASE_URL/api/findings/stats"
     "apis": 7,
     "research": 6,
     "benchmarks": 5
-  },
-  "avg_impact_score": 6.842
+  }
 }
 ```
 
-**Success (200) -- no findings yet:**
-
-```json
-{
-  "total_findings": 0,
-  "by_category": {},
-  "avg_impact_score": 0.0
-}
-```
-
-Stats with optional run filter:
+### 4) Get Finding by UUID
 
 ```bash
-curl -X GET "$BASE_URL/api/findings/stats?run_id=8ef7675f-a7bb-4979-b736-53fa775f06a9"
+curl -X GET "$BASE_URL/api/findings/c7219ce4-15f8-4f53-ad74-c84ef86f7549" \
+  -H "Authorization: Bearer <auth_token>"
 ```
 
-### 4) Get Finding by ID
-
-```bash
-curl -X GET "$BASE_URL/api/findings/c7219ce4-15f8-4f53-ad74-c84ef86f7549"
-```
-
-**Success (200):** same shape as the list item above.
+**Success (200):** same shape as list item above.
 
 **Error -- not found (404):**
 
@@ -680,12 +795,13 @@ curl -X GET "$BASE_URL/api/findings/c7219ce4-15f8-4f53-ad74-c84ef86f7549"
 
 ---
 
-## Digests API (`/api/digests`)
+## Digests API (`/api/digests`) -- Protected
 
 ### 1) List Digests
 
 ```bash
-curl -X GET "$BASE_URL/api/digests?limit=30"
+curl -X GET "$BASE_URL/api/digests?limit=30" \
+  -H "Authorization: Bearer <auth_token>"
 ```
 
 **Success (200):**
@@ -693,16 +809,12 @@ curl -X GET "$BASE_URL/api/digests?limit=30"
 ```json
 [
   {
-    "id": "5f2f9ac8-8e63-4b95-8f41-7f53a2288b89",
-    "run_id": "8ef7675f-a7bb-4979-b736-53fa775f06a9",
-    "date": "2026-03-05",
-    "executive_summary": "Major model updates and benchmark movements detected.",
-    "pdf_path": "output/digests/zentivra_digest_2026-03-05.pdf",
-    "email_sent": true,
-    "sent_at": "2026-03-05T10:24:18.000000+00:00",
-    "recipients": ["cto@company.com", "strategy@company.com"],
-    "total_findings": 15,
-    "created_at": "2026-03-05T10:24:05.000000+00:00"
+    "digest_id": "5f2f9ac8-8e63-4b95-8f41-7f53a2288b89",
+    "run_trigger_id": "d3e4f5a6-b7c8-9d0e-f1a2-b3c4d5e6f7a8",
+    "pdf_path": "data/digests/zentivra_digest_2026-03-05.pdf",
+    "html_path": "data/digests/zentivra_digest_2026-03-05.html",
+    "status": "completed",
+    "created_at": "2026-03-05T10:24:05+00:00"
   }
 ]
 ```
@@ -712,12 +824,13 @@ Returns empty array `[]` when no digests exist.
 ### 2) Get Latest Digest
 
 ```bash
-curl -X GET "$BASE_URL/api/digests/latest"
+curl -X GET "$BASE_URL/api/digests/latest" \
+  -H "Authorization: Bearer <auth_token>"
 ```
 
-**Success (200):** same shape as the list item above (single object, not array).
+**Success (200):** same shape as list item above (single object).
 
-**Error -- no digests exist yet (404):**
+**Error -- no digests exist (404):**
 
 ```json
 {
@@ -725,13 +838,14 @@ curl -X GET "$BASE_URL/api/digests/latest"
 }
 ```
 
-### 3) Get Digest by ID
+### 3) Get Digest by UUID
 
 ```bash
-curl -X GET "$BASE_URL/api/digests/5f2f9ac8-8e63-4b95-8f41-7f53a2288b89"
+curl -X GET "$BASE_URL/api/digests/5f2f9ac8-8e63-4b95-8f41-7f53a2288b89" \
+  -H "Authorization: Bearer <auth_token>"
 ```
 
-**Success (200):** same shape as the list item above.
+**Success (200):** same shape as list item above.
 
 **Error -- not found (404):**
 
@@ -745,6 +859,7 @@ curl -X GET "$BASE_URL/api/digests/5f2f9ac8-8e63-4b95-8f41-7f53a2288b89"
 
 ```bash
 curl -X GET "$BASE_URL/api/digests/5f2f9ac8-8e63-4b95-8f41-7f53a2288b89/pdf" \
+  -H "Authorization: Bearer <auth_token>" \
   --output zentivra_digest.pdf
 ```
 
@@ -758,7 +873,7 @@ curl -X GET "$BASE_URL/api/digests/5f2f9ac8-8e63-4b95-8f41-7f53a2288b89/pdf" \
 }
 ```
 
-**Error -- PDF not generated yet (404):**
+**Error -- PDF not generated (404):**
 
 ```json
 {
@@ -776,12 +891,13 @@ curl -X GET "$BASE_URL/api/digests/5f2f9ac8-8e63-4b95-8f41-7f53a2288b89/pdf" \
 
 ---
 
-## Config API (`/api/config`)
+## Config API (`/api/config`) -- Protected
 
 ### Get Current Config
 
 ```bash
-curl http://localhost:8000/api/config/
+curl -X GET "$BASE_URL/api/config/" \
+  -H "Authorization: Bearer <auth_token>"
 ```
 
 **Success (200):**
@@ -805,9 +921,7 @@ curl http://localhost:8000/api/config/
       "default_model": "llama-3.3-70b-versatile",
       "agents": {
         "competitor": { "provider": "groq", "model": "llama-3.3-70b-versatile" },
-        "model_provider": { "provider": "gemini", "model": "gemini-2.0-flash-lite" },
-        "research": { "provider": "groq", "model": "llama-3.3-70b-versatile" },
-        "hf_benchmark": { "provider": "gemini", "model": "gemini-2.0-flash-lite" }
+        "model_provider": { "provider": "gemini", "model": "gemini-2.0-flash-lite" }
       }
     },
     "deduplication": {
@@ -833,108 +947,31 @@ curl http://localhost:8000/api/config/
 }
 ```
 
-> **Note:** If no config has been saved yet, the response returns all defaults with `"updated_at": null`.
-
----
-
 ### Update Config (JSON Body)
 
 ```bash
-curl -X PUT http://localhost:8000/api/config/ \
+curl -X PUT "$BASE_URL/api/config/" \
+  -H "Authorization: Bearer <auth_token>" \
   -H "Content-Type: application/json" \
   -d '{
-    "crawl": {
-      "max_pages_per_domain": 100,
-      "request_timeout_seconds": 45
-    },
-    "llm": {
-      "default_provider": "gemini",
-      "default_model": "gemini-2.0-flash-lite",
-      "agents": {
-        "competitor": { "provider": "groq", "model": "llama-3.3-70b-versatile" },
-        "research": { "provider": "gemini", "model": "gemini-2.0-flash-lite" }
-      }
-    },
-    "deduplication": {
-      "similarity_threshold": 0.90
-    }
+    "crawl": { "max_pages_per_domain": 100 },
+    "llm": { "default_provider": "gemini" }
   }'
 ```
 
-**Success (200):**
+**Success (200):** full config with defaults filled in.
 
-```json
-{
-  "config": {
-    "crawl": {
-      "max_pages_per_domain": 100,
-      "request_timeout_seconds": 45,
-      "max_concurrent_urls": 5,
-      "respect_robots_txt": true
-    },
-    "schedule": {
-      "run_time": "06:00",
-      "timezone": "Asia/Kolkata",
-      "enabled": true
-    },
-    "llm": {
-      "default_provider": "gemini",
-      "default_model": "gemini-2.0-flash-lite",
-      "agents": {
-        "competitor": { "provider": "groq", "model": "llama-3.3-70b-versatile" },
-        "research": { "provider": "gemini", "model": "gemini-2.0-flash-lite" }
-      }
-    },
-    "deduplication": {
-      "similarity_threshold": 0.9,
-      "min_confidence": 0.3
-    },
-    "ranking": {
-      "relevance_weight": 0.35,
-      "novelty_weight": 0.25,
-      "credibility_weight": 0.2,
-      "actionability_weight": 0.2
-    },
-    "digest": {
-      "max_findings_per_section": 15,
-      "include_appendix": true
-    },
-    "notifications": {
-      "email_recipients": [],
-      "send_on_empty": false
-    }
-  },
-  "updated_at": "2026-03-05T11:00:00Z"
-}
-```
-
-**Failure — invalid value (422):**
-
-```json
-{
-  "detail": [
-    {
-      "loc": ["body", "crawl", "max_pages_per_domain"],
-      "msg": "Input should be greater than or equal to 1",
-      "type": "greater_than_equal",
-      "input": -5
-    }
-  ]
-}
-```
-
----
-
-### Upload Config File (JSON or YAML)
+### Upload Config File
 
 ```bash
-curl -X POST http://localhost:8000/api/config/upload \
+curl -X POST "$BASE_URL/api/config/upload" \
+  -H "Authorization: Bearer <auth_token>" \
   -F "file=@config.yaml"
 ```
 
-**Success (200):** Same response shape as PUT — full config with defaults filled in.
+**Success (200):** same shape as GET.
 
-**Failure — invalid YAML (422):**
+**Error -- invalid YAML (422):**
 
 ```json
 {
@@ -942,15 +979,7 @@ curl -X POST http://localhost:8000/api/config/upload \
 }
 ```
 
-**Failure — invalid JSON (422):**
-
-```json
-{
-  "detail": "Invalid JSON: Expecting ',' delimiter at line 5"
-}
-```
-
-**Failure — unsupported format (422):**
+**Error -- unsupported format (422):**
 
 ```json
 {
@@ -966,29 +995,41 @@ curl -X POST http://localhost:8000/api/config/upload \
 
 ```javascript
 async function apiCall(url, options = {}) {
+  const token = localStorage.getItem("auth_token");
+  if (token) {
+    options.headers = {
+      ...options.headers,
+      "Authorization": `Bearer ${token}`,
+    };
+  }
+
   try {
     const res = await fetch(url, options);
 
     if (res.ok) {
-      if (res.status === 204) return null;       // DELETE success
-      return await res.json();                    // normal success
+      if (res.status === 204) return null;
+      return await res.json();
     }
 
-    // 4xx / 5xx
     const err = await res.json();
 
+    if (res.status === 401) {
+      // Session expired or invalid -- redirect to login
+      const currentPath = window.location.pathname;
+      localStorage.removeItem("auth_token");
+      window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
+      throw new Error(err.detail || "Session expired");
+    }
+
     if (res.status === 422 && Array.isArray(err.detail)) {
-      // Validation error -- join field messages
       const messages = err.detail.map(e => e.msg);
       throw new Error(messages.join(". "));
     }
 
-    // 400, 404, 409, etc. -- detail is a string
     throw new Error(err.detail || "Something went wrong");
 
   } catch (e) {
     if (e instanceof TypeError) {
-      // Network error -- fetch itself failed
       throw new Error("Unable to reach the server. Is the backend running?");
     }
     throw e;
@@ -1000,22 +1041,26 @@ async function apiCall(url, options = {}) {
 
 | Endpoint | Status | `detail` message |
 |---|---|---|
+| `POST /api/auth/signup` | 409 | `"Username already taken"` |
+| `POST /api/auth/login` | 401 | `"Invalid username or password"` |
+| `POST /api/auth/login` | 403 | `"Account is disabled"` |
+| Any protected route | 401 | `"Invalid or expired session"` |
+| Any protected route | 401 | `"Session expired"` |
+| Any protected route | 401 | `"Invalid authorization header format"` |
+| Any protected route | 401 | `"Missing auth token"` |
 | `GET /api/sources/{id}` | 404 | `"Source not found"` |
 | `PUT /api/sources/{id}` | 404 | `"Source not found"` |
 | `DELETE /api/sources/{id}` | 404 | `"Source not found"` |
 | `GET /api/runs/{id}` | 404 | `"Run not found"` |
-| `POST /api/runs/trigger` | 409 | `"Run {id} is already in progress."` |
-| `GET /api/runs/{id}/logs` | 404 | `"Run not found"` |
-| `GET /api/runs/{id}/logs` | 404 | `"No logs available for this run"` |
-| `GET /api/runs/{id}/logs` | 404 | `"Log file not found on disk"` |
+| `POST /api/runs/{id}/trigger` | 404 | `"Run not found"` |
+| `POST /api/runs/{id}/trigger` | 400 | `"Run is disabled"` |
+| `GET /api/run-triggers/{id}` | 404 | `"Run trigger not found"` |
 | `GET /api/findings/{id}` | 404 | `"Finding not found"` |
 | `GET /api/digests/latest` | 404 | `"No digests found"` |
 | `GET /api/digests/{id}` | 404 | `"Digest not found"` |
-| `GET /api/digests/{id}/pdf` | 404 | `"Digest not found"` |
 | `GET /api/digests/{id}/pdf` | 404 | `"PDF not yet generated for this digest"` |
 | `GET /api/digests/{id}/pdf` | 404 | `"PDF file not found on disk"` |
-| `PUT /api/config/` | 422 | Validation error (e.g. out-of-range value) |
-| `POST /api/config/upload` | 422 | `"Invalid JSON: ..."` or `"Invalid YAML: ..."` |
-| `POST /api/config/upload` | 422 | `"Unsupported file format: '...'. Use .json, .yaml, or .yml"` |
+| `POST /api/config/upload` | 422 | `"Invalid JSON: ..."` / `"Invalid YAML: ..."` |
+| `POST /api/config/upload` | 422 | `"Unsupported file format: '...'"` |
 | Any `POST`/`PUT` with bad body | 422 | `[{loc, msg, type, input}, ...]` (array) |
-| Any unhandled server error | 500 | `{"detail": "Internal Server Error"}` |
+| Any unhandled server error | 500 | `"Internal server error"` |

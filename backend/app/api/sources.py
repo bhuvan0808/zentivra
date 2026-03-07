@@ -4,12 +4,15 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 
-from app.dependencies import get_source_service
+from app.dependencies import get_current_user, get_source_service
 from app.models.source import AgentType
 from app.schemas.source import SourceCreate, SourceResponse, SourceUpdate
 from app.services.source_service import SourceService
 
-router = APIRouter(prefix="/sources", tags=["Sources"])
+router = APIRouter(
+    prefix="/sources", tags=["Sources"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.get("/", response_model=list[SourceResponse])
@@ -36,8 +39,8 @@ async def get_source(
     source_id: str,
     service: SourceService = Depends(get_source_service),
 ):
-    """Get a source by ID."""
-    return await service.get_by_id(source_id)
+    """Get a source by its UUID."""
+    return await service.get_by_uuid(source_id)
 
 
 @router.put("/{source_id}", response_model=SourceResponse)
@@ -46,7 +49,7 @@ async def update_source(
     source_data: SourceUpdate,
     service: SourceService = Depends(get_source_service),
 ):
-    """Update a source."""
+    """Update a source by its UUID."""
     return await service.update(source_id, source_data)
 
 
@@ -55,5 +58,5 @@ async def delete_source(
     source_id: str,
     service: SourceService = Depends(get_source_service),
 ):
-    """Delete a source."""
+    """Delete a source by its UUID."""
     await service.delete(source_id)

@@ -1,13 +1,16 @@
-"""Digests API - View and download daily intelligence digests."""
+"""Digests API - View and download intelligence digests."""
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
 
-from app.dependencies import get_digest_service
+from app.dependencies import get_current_user, get_digest_service
 from app.schemas.digest import DigestResponse
 from app.services.digest_service import DigestService
 
-router = APIRouter(prefix="/digests", tags=["Digests"])
+router = APIRouter(
+    prefix="/digests", tags=["Digests"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.get("/", response_model=list[DigestResponse])
@@ -32,8 +35,22 @@ async def get_digest(
     digest_id: str,
     service: DigestService = Depends(get_digest_service),
 ):
-    """Get a digest by ID."""
-    return await service.get_by_id(digest_id)
+    """Get a digest by its UUID."""
+    return await service.get_by_uuid(digest_id)
+
+
+@router.get("/{digest_id}/html")
+async def serve_digest_html(
+    digest_id: str,
+    service: DigestService = Depends(get_digest_service),
+):
+    """Serve the HTML for a digest."""
+    html_path = await service.get_html_path(digest_id)
+    return FileResponse(
+        path=str(html_path),
+        media_type="text/html",
+        filename=f"zentivra_digest_{html_path.stem}.html",
+    )
 
 
 @router.get("/{digest_id}/pdf")

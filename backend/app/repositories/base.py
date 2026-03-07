@@ -13,13 +13,24 @@ ModelT = TypeVar("ModelT", bound=Base)
 class BaseRepository(Generic[ModelT]):
     """Provides reusable get / create / update / delete for any SQLAlchemy model."""
 
+    uuid_column: str = ""
+
     def __init__(self, model: type[ModelT], db: AsyncSession):
         self.model = model
         self.db = db
 
-    async def get_by_id(self, entity_id: str) -> ModelT | None:
+    async def get_by_id(self, entity_id: int) -> ModelT | None:
+        """Lookup by integer PK (internal use only)."""
         result = await self.db.execute(
             select(self.model).where(self.model.id == entity_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_uuid(self, uuid_str: str) -> ModelT | None:
+        """Lookup by the table's UUID column (used by API layer)."""
+        col = getattr(self.model, self.uuid_column)
+        result = await self.db.execute(
+            select(self.model).where(col == uuid_str)
         )
         return result.scalar_one_or_none()
 

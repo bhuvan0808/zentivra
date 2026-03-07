@@ -1,560 +1,471 @@
 """
-Base Agent - Shared interface that all agent workers implement.
+Base Agent - Shared interface for all agent workers.
 
-Provides the common pipeline: fetch → extract → detect changes → summarize → store.
-Each agent subclass customizes source discovery and extraction logic.
+Pipeline per source URL:  fetch -> extract -> preprocess -> AI summarize
+Returns a list of finding dicts; the orchestrator handles DB persistence.
 """
 
 import asyncio
-import hashlib
-import uuid
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
-from typing import Awaitable, Callable, Optional
-
-from app.utils.logger import logger
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional
 
 from app.config import settings
-from app.core.change_detector import ChangeDetector
 from app.core.extractor import Extractor
-from app.core.fetcher import Fetcher, FetchResult
-from app.core.summarizer import Summarizer, SummaryResult
-from app.models.extraction import Extraction
-from app.models.finding import Finding
-from app.models.snapshot import Snapshot
+from app.core.fetcher import Fetcher
+from app.core.preprocessor import preprocess
+from app.core.summarizer import Summarizer
+from app.models.run import Run
 from app.models.source import Source
+from app.utils.logger import logger
 
 
 class BaseAgent(ABC):
     """
-    Abstract base class for all agent workers.
+    Abstract base class for agent workers.
 
     Subclasses implement:
-        - agent_type: str property identifying this agent
-        - discover_urls(): find URLs to crawl from a source config
+        - agent_type: str property
+        - discover_urls(): custom URL discovery from a Source
         - post_process_finding(): agent-specific enrichment
     """
 
     def __init__(self):
         self.fetcher = Fetcher()
         self.extractor = Extractor()
-        self.change_detector = ChangeDetector()
         self.summarizer = Summarizer()
-        self._log_callback: Optional[
-            Callable[[str, str, Optional[dict]], Awaitable[None]]
-        ] = None
 
     @property
     @abstractmethod
-    def agent_type(self) -> str:
-        """Agent type identifier (e.g., 'competitor', 'model_provider')."""
-        ...
+    def agent_type(self) -> str: ...
 
     @property
     def agent_name(self) -> str:
-        """Human-readable agent name."""
         return self.agent_type.replace("_", " ").title()
 
     async def run(
         self,
-        run_id: str,
         sources: list[Source],
-        since: Optional[datetime] = None,
-        db: Optional[AsyncSession] = None,
-        log_callback: Optional[
-            Callable[[str, str, Optional[dict]], Awaitable[None]]
-        ] = None,
-    ) -> list[dict]:
+        run_config: Run | None = None,
+        run_logger=None,
+    ) -> dict:
+        """Execute the agent pipeline for all assigned sources.
+
+        Returns structured result dict:
+            findings  - list of finding dicts
+            errors    - list of human-readable error strings
+            urls_attempted - total URLs the agent tried to process
+            urls_succeeded - URLs that produced a finding
         """
-        Execute the agent pipeline for all assigned sources.
-
-        Pipeline per source:
-        1. Discover URLs (RSS/sitemap/direct)
-        2. Fetch each URL
-        3. Extract text + metadata
-        4. Detect content changes
-        5. Summarize new/changed content via LLM
-        6. Store snapshots, extractions, and findings
-
-        Args:
-            run_id: Current pipeline run ID
-            sources: List of Source objects assigned to this agent
-            since: Only process content newer than this timestamp
-            db: Database session for persistence
-
-        Returns:
-            List of finding dicts ready for dedup/ranking
-        """
-        all_findings = []
-        agent_log = {
-            "sources_processed": 0,
-            "urls_fetched": 0,
-            "findings_created": 0,
+        aggregate: dict = {
+            "findings": [],
             "errors": [],
+            "urls_attempted": 0,
+            "urls_succeeded": 0,
         }
 
         logger.info(
-            "agent_run_start agent=%s run_id=%s sources=%d",
+            "agent_run_start agent=%s sources=%d",
             self.agent_type,
-            run_id[:8],
             len(sources),
         )
-        self._log_callback = log_callback
-        await self._emit_log(
-            "agent_run_start",
-            context={"run_id": run_id[:8], "sources": len(sources)},
-        )
+        if run_logger:
+            run_logger.info(
+                "agent_run_start",
+                step="pipeline",
+                sources=len(sources),
+            )
 
         for source in sources:
-            if not source.enabled:
+            if not source.is_enabled:
                 continue
 
             try:
-                await self._emit_log(
-                    "source_processing_start",
-                    context={"source_name": source.name},
+                if run_logger:
+                    run_logger.info(
+                        "source_processing_start",
+                        step="source_resolution",
+                        source=source.display_name,
+                        url=source.url,
+                    )
+                source_result = await self._process_source(
+                    source,
+                    run_config,
+                    run_logger,
                 )
-                findings = await self._process_source(run_id, source, since, db)
-                all_findings.extend(findings)
-                agent_log["sources_processed"] += 1
-                agent_log["findings_created"] += len(findings)
-                if db:
-                    await db.commit()
-                await self._emit_log(
-                    "source_processing_complete",
-                    context={"source_name": source.name, "findings": len(findings)},
-                )
+                aggregate["findings"].extend(source_result["findings"])
+                aggregate["errors"].extend(source_result["errors"])
+                aggregate["urls_attempted"] += source_result["urls_attempted"]
+                aggregate["urls_succeeded"] += source_result["urls_succeeded"]
 
-            except Exception as e:
-                error_msg = f"Error processing source '{source.name}': {e}"
-                logger.error("agent_source_error source=%s error=%s", source.name, str(e))
-                agent_log["errors"].append(error_msg)
-                await self._emit_log(
-                    "source_processing_error",
-                    level="error",
-                    context={"source_name": source.name, "error": str(e)},
+                if run_logger:
+                    run_logger.info(
+                        "source_processing_complete",
+                        step="source_resolution",
+                        source=source.display_name,
+                        findings=len(source_result["findings"]),
+                        errors=len(source_result["errors"]),
+                    )
+            except Exception as exc:
+                logger.error(
+                    "agent_source_error agent=%s source=%s err=%s",
+                    self.agent_type,
+                    source.display_name,
+                    str(exc)[:200],
+                )
+                if run_logger:
+                    run_logger.error(
+                        "source_processing_error",
+                        step="source_resolution",
+                        source=source.display_name,
+                        error=str(exc)[:200],
+                    )
+                aggregate["errors"].append(
+                    f"source:{source.display_name}: {str(exc)[:200]}"
                 )
 
         logger.info(
-            "agent_run_complete agent=%s findings=%d sources_processed=%d urls_fetched=%d findings_created=%d errors=%s",
+            "agent_run_complete agent=%s findings=%d errors=%d attempted=%d succeeded=%d",
             self.agent_type,
-            len(all_findings),
-            agent_log["sources_processed"],
-            agent_log["urls_fetched"],
-            agent_log["findings_created"],
-            str(agent_log["errors"]),
+            len(aggregate["findings"]),
+            len(aggregate["errors"]),
+            aggregate["urls_attempted"],
+            aggregate["urls_succeeded"],
         )
-        await self._emit_log(
-            "agent_run_complete",
-            context={
-                "findings": len(all_findings),
-                "sources_processed": agent_log["sources_processed"],
-                "errors": len(agent_log["errors"]),
-            },
-        )
-        self._log_callback = None
-
-        return all_findings
+        if run_logger:
+            run_logger.info(
+                "agent_run_complete",
+                step="pipeline",
+                findings=len(aggregate["findings"]),
+                errors=len(aggregate["errors"]),
+                urls_attempted=aggregate["urls_attempted"],
+                urls_succeeded=aggregate["urls_succeeded"],
+            )
+        return aggregate
 
     async def _process_source(
         self,
-        run_id: str,
         source: Source,
-        since: Optional[datetime],
-        db: Optional[AsyncSession],
-    ) -> list[dict]:
-        """Process a single source: discover → fetch → extract → summarize."""
-        findings = []
+        run_config: Run | None,
+        run_logger=None,
+    ) -> dict:
+        """Process a single source with BFS crawl up to configured crawl_depth.
 
-        # Step 1: Discover URLs to crawl
-        urls = await self.discover_urls(source)
+        Returns a dict with findings, errors, urls_attempted, urls_succeeded.
+        """
+        result: dict = {
+            "findings": [],
+            "errors": [],
+            "urls_attempted": 0,
+            "urls_succeeded": 0,
+        }
+        crawl_depth = run_config.crawl_depth if run_config else 0
+
+        seed_urls = await self.discover_urls(source)
         logger.info(
-            "urls_discovered agent=%s source=%s urls=%d",
+            "urls_discovered agent=%s source=%s count=%d depth=%d",
             self.agent_type,
-            source.name,
-            len(urls),
+            source.display_name,
+            len(seed_urls),
+            crawl_depth,
         )
-        await self._emit_log(
-            "urls_discovered",
-            context={"source_name": source.name, "count": len(urls)},
-        )
-
-        if not urls:
-            return findings
-
-        max_urls = max(1, int(settings.max_urls_per_source))
-        if len(urls) > max_urls:
-            urls = urls[:max_urls]
-            await self._emit_log(
-                "urls_trimmed",
-                level="warning",
-                context={"source_name": source.name, "max_urls": max_urls},
+        if run_logger:
+            run_logger.info(
+                "urls_discovered",
+                step="fetch",
+                source=source.display_name,
+                count=len(seed_urls),
+                crawl_depth=crawl_depth,
             )
 
-        source_timeout_seconds = max(0, int(settings.source_processing_timeout_seconds))
-        url_timeout_seconds = max(1, int(settings.url_processing_timeout_seconds))
-        source_started = asyncio.get_running_loop().time()
+        if not seed_urls:
+            return result
 
-        # Step 2-5: Process each URL
-        for url in urls:
-            if source_timeout_seconds:
-                elapsed = asyncio.get_running_loop().time() - source_started
-                if elapsed > source_timeout_seconds:
+        max_urls = max(1, int(settings.max_urls_per_source))
+        source_timeout = max(0, int(settings.source_processing_timeout_seconds))
+        url_timeout = max(1, int(settings.url_processing_timeout_seconds))
+        source_start = asyncio.get_running_loop().time()
+
+        visited: set[str] = set()
+        current_level_urls = seed_urls[:max_urls]
+        total_processed = 0
+
+        for level in range(crawl_depth + 1):
+            next_level_urls: list[str] = []
+
+            for url in current_level_urls:
+                if url in visited or total_processed >= max_urls:
+                    continue
+
+                if source_timeout:
+                    elapsed = asyncio.get_running_loop().time() - source_start
+                    if elapsed > source_timeout:
+                        logger.warning(
+                            "source_timeout agent=%s source=%s level=%d",
+                            self.agent_type,
+                            source.display_name,
+                            level,
+                        )
+                        if run_logger:
+                            run_logger.warning(
+                                "source_timeout",
+                                step="fetch",
+                                source=source.display_name,
+                                level=level,
+                            )
+                        result["errors"].append(f"source_timeout at level {level}")
+                        return result
+
+                visited.add(url)
+                total_processed += 1
+                result["urls_attempted"] += 1
+
+                try:
+                    finding, error_msg = await asyncio.wait_for(
+                        self._process_url(source, url, run_config, run_logger),
+                        timeout=url_timeout,
+                    )
+                    if finding:
+                        result["findings"].append(finding)
+                        result["urls_succeeded"] += 1
+                        discovered = finding.pop("_discovered_links", [])
+                        if level < crawl_depth and discovered:
+                            next_level_urls.extend(
+                                u for u in discovered if u not in visited
+                            )
+                    elif error_msg:
+                        result["errors"].append(f"{url}: {error_msg}")
+                except asyncio.TimeoutError:
                     logger.warning(
-                        "source_processing_timeout agent=%s source=%s timeout=%ds",
+                        "url_timeout agent=%s url=%s timeout=%ds",
                         self.agent_type,
-                        source.name,
-                        source_timeout_seconds,
+                        url,
+                        url_timeout,
                     )
-                    await self._emit_log(
-                        "source_processing_timeout",
-                        level="warning",
-                        context={
-                            "source_name": source.name,
-                            "timeout_seconds": source_timeout_seconds,
-                        },
+                    if run_logger:
+                        run_logger.warning(
+                            "url_timeout",
+                            step="fetch",
+                            url=url,
+                            timeout_seconds=url_timeout,
+                        )
+                    result["errors"].append(f"{url}: timeout after {url_timeout}s")
+                except Exception as exc:
+                    logger.error(
+                        "url_error agent=%s url=%s err=%s",
+                        self.agent_type,
+                        url,
+                        str(exc)[:200],
                     )
-                    break
+                    if run_logger:
+                        run_logger.error(
+                            "url_error",
+                            step="fetch",
+                            url=url,
+                            error=str(exc)[:200],
+                        )
+                    result["errors"].append(f"{url}: {str(exc)[:200]}")
 
-            try:
-                finding = await asyncio.wait_for(
-                    self._process_url(run_id, source, url, since, db),
-                    timeout=url_timeout_seconds,
-                )
-                if finding:
-                    findings.append(finding)
-            except asyncio.TimeoutError:
-                logger.warning(
-                    "url_processing_timeout agent=%s source=%s url=%s timeout=%ds",
-                    self.agent_type,
-                    source.name,
-                    url,
-                    url_timeout_seconds,
-                )
-                await self._emit_log(
-                    "url_processing_timeout",
-                    level="warning",
-                    context={
-                        "source_name": source.name,
-                        "url": url,
-                        "timeout_seconds": url_timeout_seconds,
-                    },
-                )
-                if db:
-                    await db.rollback()
-            except Exception as e:
-                logger.error(
-                    "url_processing_error url=%s source=%s error=%s",
-                    url,
-                    source.name,
-                    str(e),
-                )
-                if db:
-                    await db.rollback()
+            if not next_level_urls or level >= crawl_depth:
+                break
 
-        return findings
+            remaining = max_urls - total_processed
+            current_level_urls = next_level_urls[:remaining]
+            logger.info(
+                "crawl_next_level agent=%s source=%s level=%d queued=%d",
+                self.agent_type,
+                source.display_name,
+                level + 1,
+                len(current_level_urls),
+            )
+            if run_logger:
+                run_logger.info(
+                    "crawl_next_level",
+                    step="fetch",
+                    source=source.display_name,
+                    level=level + 1,
+                    queued=len(current_level_urls),
+                )
+
+        return result
 
     async def _process_url(
         self,
-        run_id: str,
         source: Source,
         url: str,
-        since: Optional[datetime],
-        db: Optional[AsyncSession],
-    ) -> Optional[dict]:
-        """Process a single URL through the pipeline."""
+        run_config: Run | None,
+        run_logger=None,
+    ) -> tuple[Optional[dict], Optional[str]]:
+        """Single URL pipeline: Fetch -> Extract -> Preprocess -> AI Summarize.
 
-        # Step 2: Fetch
-        await self._emit_log("url_fetch_start", context={"url": url, "source": source.name})
-        fetch_result = await self.fetcher.fetch(
-            url,
-            rate_limit_rpm=source.rate_limit_rpm,
-        )
+        Returns:
+            (finding_dict, None)  on success
+            (None, error_msg)     on failure
+            (None, None)          on intentional skip (keyword filter)
+        """
+
+        # ── Fetch ──────────────────────────────────────────────
+        if run_logger:
+            run_logger.info("fetch_start", step="fetch", url=url[:120])
+        fetch_result = await self.fetcher.fetch(url)
 
         if not fetch_result.success:
-            logger.warning("fetch_failed url=%s error=%s", url, fetch_result.error)
-            await self._emit_log(
-                "url_fetch_failed",
-                level="warning",
-                context={"url": url, "error": fetch_result.error},
-            )
-            if db:
-                await self._save_failed_snapshot(run_id, source.id, url, fetch_result, db)
-            return None
-        await self._emit_log(
-            "url_fetch_complete",
-            context={"url": url, "status_code": fetch_result.status_code},
-        )
+            logger.warning("fetch_failed url=%s err=%s", url, fetch_result.error)
+            if run_logger:
+                run_logger.warning(
+                    "fetch_failed",
+                    step="fetch",
+                    url=url[:120],
+                    error=str(fetch_result.error)[:200],
+                )
+            return None, f"fetch_failed: {fetch_result.error}"
 
-        # Step 3: Extract text + metadata
+        if run_logger:
+            run_logger.info("fetch_done", step="fetch", url=url[:120])
+
+        # ── Extract ────────────────────────────────────────────
+        if run_logger:
+            run_logger.info("extract_start", step="extract", url=url[:120])
         extraction = self.extractor.extract_html(
             fetch_result.content,
             url=url,
-            css_selectors=source.css_selectors,
         )
 
         if not extraction.success or not extraction.text:
-            logger.warning("extraction_failed url=%s error=%s", url, extraction.error)
-            await self._emit_log(
-                "url_extraction_failed",
-                level="warning",
-                context={"url": url, "error": extraction.error},
-            )
-            if db:
-                await self._save_failed_snapshot(run_id, source.id, url, fetch_result, db)
-            return None
-
-        # Step 4: Detect changes
-        previous_content = None
-        if db:
-            previous_content = await self._get_previous_content(source.id, url, db)
-
-        change = self.change_detector.compare(previous_content, extraction.text)
-
-        # Skip if content hasn't significantly changed
-        if not self.change_detector.is_significant_change(change):
-            logger.debug("no_significant_change url=%s", url)
-            await self._emit_log("url_no_significant_change", context={"url": url})
-            # Still save snapshot for tracking
-            if db:
-                await self._save_snapshot(
-                    run_id, source.id, url, fetch_result, extraction,
-                    content_changed=False, db=db,
+            logger.warning("extraction_failed url=%s", url)
+            if run_logger:
+                run_logger.warning(
+                    "extract_failed",
+                    step="extract",
+                    url=url[:120],
                 )
-            return None
+            return None, "extraction_failed: no usable text"
 
-        # Step 5: Summarize via LLM
+        if run_logger:
+            run_logger.info(
+                "extract_done",
+                step="extract",
+                url=url[:120],
+                text_len=len(extraction.text),
+            )
+
+        # ── Preprocess ─────────────────────────────────────────
+        if run_logger:
+            run_logger.info("preprocess_start", step="preprocess", url=url[:120])
+        cleaned_text = preprocess(extraction.text)
+        if not cleaned_text:
+            logger.warning("preprocess_empty url=%s", url)
+            if run_logger:
+                run_logger.warning(
+                    "preprocess_empty",
+                    step="preprocess",
+                    url=url[:120],
+                )
+            return None, "preprocess_empty: no content after cleaning"
+
+        if run_logger:
+            run_logger.info(
+                "preprocess_done",
+                step="preprocess",
+                url=url[:120],
+                cleaned_len=len(cleaned_text),
+            )
+
+        # ── Keyword filter (intentional skip, not an error) ───
+        if run_config and run_config.keywords:
+            text_lower = cleaned_text.lower()
+            if not any(kw.lower() in text_lower for kw in run_config.keywords):
+                logger.info(
+                    "keyword_filter_skip url=%s keywords=%s text_preview=%s",
+                    url[:80],
+                    run_config.keywords[:5],
+                    cleaned_text[:150].replace("\n", " "),
+                )
+                if run_logger:
+                    run_logger.info(
+                        "keyword_filter_skip",
+                        step="keyword_filter",
+                        url=url[:120],
+                    )
+                return None, None
+
+        # ── AI Summarize ───────────────────────────────────────
+        if run_logger:
+            run_logger.info("summarize_start", step="summarize", url=url[:120])
         summary = await self.summarizer.summarize(
-            content=extraction.text,
-            source_name=source.name,
+            content=cleaned_text,
+            source_name=source.display_name,
             source_url=url,
             content_type=self._get_content_type(),
         )
 
         if not summary.success:
-            logger.warning("summarization_failed url=%s error=%s", url, summary.error)
-            await self._emit_log(
-                "url_summarization_failed",
-                level="warning",
-                context={"url": url, "error": summary.error},
-            )
-            if db:
-                await self._save_failed_snapshot(run_id, source.id, url, fetch_result, db)
-            return None
+            logger.warning("summarize_failed url=%s err=%s", url, summary.error)
+            if run_logger:
+                run_logger.warning(
+                    "summarize_failed",
+                    step="summarize",
+                    url=url[:120],
+                    error=str(summary.error)[:200],
+                )
+            return None, f"summarize_failed: {summary.error}"
 
-        # Step 6: Store in database
-        if db:
-            await self._save_snapshot(
-                run_id, source.id, url, fetch_result, extraction,
-                content_changed=True, db=db,
+        if run_logger:
+            run_logger.info(
+                "summarize_done",
+                step="summarize",
+                url=url[:120],
+                category=summary.category,
             )
 
-        # Build finding dict
+        # ── Build finding dict ─────────────────────────────────
         finding = {
-            "id": str(uuid.uuid4()),
-            "run_id": run_id,
-            "source_id": source.id,
-            "agent_type": self.agent_type,
-            "title": summary.title or extraction.title or "Untitled",
-            "date_detected": datetime.now(timezone.utc).isoformat(),
-            "source_url": url,
-            "publisher": source.name,
-            "category": summary.category,
-            "summary_short": summary.summary_short,
-            "summary_long": summary.summary_long,
-            "why_it_matters": summary.why_it_matters,
-            "what_changed": summary.what_changed,
-            "who_it_affects": summary.who_it_affects,
-            "key_numbers": summary.key_numbers,
-            "evidence": summary.evidence,
-            "confidence": summary.confidence,
-            "tags": summary.tags,
-            "entities": summary.entities,
-            "diff_hash": change.current_hash,
-            "impact_score": 0.0,  # Will be set by Ranker
-            "is_duplicate": False,  # Will be set by Dedup
-            "cluster_id": None,
+            "content": cleaned_text[:5000],
+            "summary": summary.summary_short or summary.summary_long or "",
+            "src_url": url,
+            "category": summary.category or "other",
+            "confidence": summary.confidence or 0.5,
+            "_discovered_links": getattr(extraction, "links", []),
         }
 
-        # Agent-specific enrichment
         finding = await self.post_process_finding(finding, extraction, source)
 
         logger.info(
-            "finding_created title=%s confidence=%.2f category=%s",
-            finding["title"][:60],
-            finding["confidence"],
+            "finding_created agent=%s url=%s category=%s confidence=%.2f",
+            self.agent_type,
+            url[:60],
             finding["category"],
+            finding["confidence"],
         )
-        await self._emit_log(
-            "finding_created",
-            context={
-                "url": url,
-                "title": finding["title"],
-                "confidence": finding["confidence"],
-            },
-        )
+        if run_logger:
+            run_logger.info(
+                "finding_created",
+                step="summarize",
+                url=url[:120],
+                category=finding["category"],
+                confidence=finding["confidence"],
+            )
+        return finding, None
 
-        return finding
+    # ── Overridable hooks ──────────────────────────────────────────
 
     async def discover_urls(self, source: Source) -> list[str]:
-        """
-        Discover URLs to crawl from a source.
-
-        Default strategy: RSS feed → direct URL.
-        Subclasses can override for custom discovery (sitemap, API, etc.).
-        """
-        urls = []
-
-        # Try RSS/Atom feed first
-        if source.feed_url:
-            feed_urls = await self._discover_from_feed(source.feed_url)
-            urls.extend(feed_urls)
-
-        # If no feed entries, use the direct URL
-        if not urls:
-            urls.append(source.url)
-
-        return urls
-
-    async def _discover_from_feed(self, feed_url: str) -> list[str]:
-        """Fetch and parse an RSS/Atom feed to discover article URLs."""
-        result = await self.fetcher.fetch(feed_url, use_playwright_fallback=False)
-        if not result.success:
-            return []
-
-        entries = self.extractor.extract_feed(result.content, feed_url)
-
-        max_urls = max(1, int(settings.max_urls_per_source))
-        return [e.link for e in entries[:max_urls] if e.link]
+        """Default URL discovery: just use source.url."""
+        return [source.url]
 
     async def post_process_finding(
-        self, finding: dict, extraction, source: Source
+        self,
+        finding: dict,
+        extraction,
+        source: Source,
     ) -> dict:
-        """
-        Agent-specific post-processing of a finding.
-
-        Override in subclasses to add custom fields, adjust confidence, etc.
-        """
+        """Agent-specific enrichment. Override in subclasses."""
         return finding
 
     def _get_content_type(self) -> str:
-        """Return the content type label for this agent."""
         return "web page"
 
-    async def _get_previous_content(
-        self, source_id: str, url: str, db: AsyncSession
-    ) -> Optional[str]:
-        """Get the most recent extracted content for a URL from a previous run."""
-        try:
-            result = await db.execute(
-                select(Extraction.extracted_text)
-                .join(Snapshot, Extraction.snapshot_id == Snapshot.id)
-                .where(Snapshot.source_id == source_id)
-                .where(Snapshot.url == url)
-                .where(Snapshot.content_changed == True)
-                .order_by(Snapshot.fetched_at.desc())
-                .limit(1)
-            )
-            row = result.scalar_one_or_none()
-            return row
-        except Exception as e:
-            logger.error("previous_content_error url=%s error=%s", url, str(e))
-            return None
-
-    async def _save_snapshot(
-        self,
-        run_id: str,
-        source_id: str,
-        url: str,
-        fetch_result: FetchResult,
-        extraction,
-        content_changed: bool,
-        db: AsyncSession,
-    ):
-        """Save snapshot and extraction to database."""
-        try:
-            snapshot = Snapshot(
-                source_id=source_id,
-                run_id=run_id,
-                url=url,
-                content_hash=fetch_result.content_hash,
-                raw_content=fetch_result.content[:50000],  # Cap at 50KB
-                http_status=fetch_result.status_code,
-                content_changed=content_changed,
-            )
-            db.add(snapshot)
-            await db.flush()
-
-            ext = Extraction(
-                snapshot_id=snapshot.id,
-                extracted_text=extraction.text[:30000],  # Cap at 30KB
-                metadata_={
-                    "title": extraction.title,
-                    "author": extraction.author,
-                    "method": extraction.method,
-                },
-                extraction_method=extraction.method,
-            )
-            db.add(ext)
-            await db.flush()
-            await db.commit()
-
-        except Exception as e:
-            logger.error("save_snapshot_error url=%s error=%s", url, str(e))
-            await db.rollback()
-
-    async def _save_failed_snapshot(
-        self,
-        run_id: str,
-        source_id: str,
-        url: str,
-        fetch_result: FetchResult,
-        db: AsyncSession,
-    ):
-        """Persist a snapshot even when extraction/summarization fails."""
-        try:
-            content = fetch_result.content or ""
-            content_hash = (
-                fetch_result.content_hash
-                if fetch_result.content_hash
-                else hashlib.sha256(content.encode("utf-8")).hexdigest()
-            )
-            snapshot = Snapshot(
-                source_id=source_id,
-                run_id=run_id,
-                url=url,
-                content_hash=content_hash,
-                raw_content=content[:50000] if content else None,
-                http_status=fetch_result.status_code or 0,
-                content_changed=None,
-            )
-            db.add(snapshot)
-            await db.flush()
-            await db.commit()
-        except Exception as e:
-            logger.error("save_failed_snapshot_error url=%s error=%s", url, str(e))
-            await db.rollback()
+    # ── Lifecycle ──────────────────────────────────────────────────
 
     async def close(self):
-        """Cleanup resources."""
+        """Release resources."""
         await self.fetcher.close()
-
-    async def _emit_log(
-        self,
-        message: str,
-        level: str = "info",
-        context: Optional[dict] = None,
-    ) -> None:
-        """Send a structured log event to the orchestrator callback if configured."""
-        if not self._log_callback:
-            return
-        try:
-            await self._log_callback(level, message, context)
-        except Exception as e:
-            logger.debug(
-                "agent_log_callback_failed agent=%s error=%s",
-                self.agent_type,
-                str(e),
-            )

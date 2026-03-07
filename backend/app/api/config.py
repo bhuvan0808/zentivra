@@ -2,11 +2,14 @@
 
 from fastapi import APIRouter, Depends, File, UploadFile
 
-from app.dependencies import get_orchestrator_config_service
+from app.dependencies import get_current_user, get_orchestrator_config_service
 from app.schemas.orchestrator_config import OrchestratorConfigResponse
 from app.services.orchestrator_config_service import OrchestratorConfigService
 
-router = APIRouter(prefix="/config", tags=["Config"])
+router = APIRouter(
+    prefix="/config", tags=["Config"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.get("/", response_model=OrchestratorConfigResponse)

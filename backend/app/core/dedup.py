@@ -87,49 +87,54 @@ class DedupEngine:
         total = len(findings)
         logger.info("dedup_start total_findings=%d", total)
 
+        def _key(f: dict) -> str:
+            return f.get("src_url", "") or str(id(f))
+
         # Phase 1: Exact hash dedup
-        seen_hashes = {}
-        duplicate_ids = set()
+        seen_hashes: dict[str, str] = {}
+        duplicate_keys: set[str] = set()
 
         for f in findings:
-            text = f"{f.get('title', '')} {f.get('summary_short', '')}"
+            text = f"{f.get('summary', '')} {f.get('content', '')[:200]}"
             text_hash = self._compute_text_hash(text)
+            fk = _key(f)
 
             if text_hash in seen_hashes:
-                duplicate_ids.add(f["id"])
-                logger.debug("exact_duplicate finding_id=%s", f["id"])
+                duplicate_keys.add(fk)
+                logger.debug("exact_duplicate url=%s", fk[:80])
             else:
-                seen_hashes[text_hash] = f["id"]
+                seen_hashes[text_hash] = fk
 
         # Phase 2: Semantic similarity dedup
-        non_dup_findings = [f for f in findings if f["id"] not in duplicate_ids]
+        non_dup_findings = [f for f in findings if _key(f) not in duplicate_keys]
 
         if self.use_semantic_dedup and len(non_dup_findings) > 1:
             model = self._get_embedding_model()
             if model:
                 semantic_dups = self._semantic_dedup(non_dup_findings, model)
-                duplicate_ids.update(semantic_dups)
+                duplicate_keys.update(semantic_dups)
 
         # Phase 3: Cluster remaining unique findings by topic
-        unique_findings = [f for f in findings if f["id"] not in duplicate_ids]
+        unique_findings = [f for f in findings if _key(f) not in duplicate_keys]
         clusters = self._cluster_findings(unique_findings)
 
         # Mark duplicates in the original findings
         for f in findings:
-            f["is_duplicate"] = f["id"] in duplicate_ids
+            fk = _key(f)
+            f["is_duplicate"] = fk in duplicate_keys
             f["cluster_id"] = None
-            for cluster_id, member_ids in clusters.items():
-                if f["id"] in member_ids:
+            for cluster_id, member_keys in clusters.items():
+                if fk in member_keys:
                     f["cluster_id"] = cluster_id
                     break
 
         result = DedupResult(
             unique_findings=unique_findings,
-            duplicate_ids=list(duplicate_ids),
+            duplicate_ids=list(duplicate_keys),
             clusters=clusters,
             total_input=total,
             total_unique=len(unique_findings),
-            total_duplicates=len(duplicate_ids),
+            total_duplicates=len(duplicate_keys),
         )
 
         logger.info(
@@ -144,68 +149,59 @@ class DedupEngine:
 
     def _semantic_dedup(self, findings: list[dict], model) -> set[str]:
         """Use embeddings to find semantically similar findings."""
-        import numpy as np
+
+        def _key(f: dict) -> str:
+            return f.get("src_url", "") or str(id(f))
 
         texts = [
-            f"{f.get('title', '')}. {f.get('summary_short', '')}" for f in findings
+            f"{f.get('summary', '')}. {f.get('content', '')[:300]}" for f in findings
         ]
 
         try:
             embeddings = model.encode(texts, show_progress_bar=False)
 
-            # Compute cosine similarity matrix
             from sklearn.metrics.pairwise import cosine_similarity
 
             sim_matrix = cosine_similarity(embeddings)
 
-            duplicate_ids = set()
+            duplicate_keys: set[str] = set()
             n = len(findings)
 
             for i in range(n):
-                if findings[i]["id"] in duplicate_ids:
+                if _key(findings[i]) in duplicate_keys:
                     continue
                 for j in range(i + 1, n):
-                    if findings[j]["id"] in duplicate_ids:
+                    if _key(findings[j]) in duplicate_keys:
                         continue
                     if sim_matrix[i][j] >= self.similarity_threshold:
-                        # Keep the one with higher confidence
                         conf_i = findings[i].get("confidence", 0)
                         conf_j = findings[j].get("confidence", 0)
                         if conf_i >= conf_j:
-                            duplicate_ids.add(findings[j]["id"])
+                            duplicate_keys.add(_key(findings[j]))
                         else:
-                            duplicate_ids.add(findings[i]["id"])
+                            duplicate_keys.add(_key(findings[i]))
 
                         logger.debug(
-                            "semantic_duplicate similarity=%.3f kept=%s",
+                            "semantic_duplicate similarity=%.3f",
                             float(sim_matrix[i][j]),
-                            (
-                                findings[i]["id"]
-                                if conf_i >= conf_j
-                                else findings[j]["id"]
-                            ),
                         )
 
-            return duplicate_ids
+            return duplicate_keys
 
         except Exception as e:
             logger.error("semantic_dedup_error error=%s", str(e))
             return set()
 
     def _cluster_findings(self, findings: list[dict]) -> dict[str, list[str]]:
-        """
-        Cluster findings by topic using their categories.
+        """Cluster findings by category."""
 
-        Categories from spec: Models, APIs, Pricing, Benchmarks, Safety, Tooling
-        """
-        clusters = {}
+        def _key(f: dict) -> str:
+            return f.get("src_url", "") or str(id(f))
 
+        clusters: dict[str, list[str]] = {}
         for f in findings:
             category = f.get("category", "other")
             cluster_id = f"cluster_{category}"
-
-            if cluster_id not in clusters:
-                clusters[cluster_id] = []
-            clusters[cluster_id].append(f["id"])
+            clusters.setdefault(cluster_id, []).append(_key(f))
 
         return clusters

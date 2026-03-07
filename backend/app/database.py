@@ -16,7 +16,7 @@ from app.config import settings
 is_sqlite = "sqlite" in settings.database_url
 engine = create_async_engine(
     settings.database_url,
-    echo=(settings.app_env.value == "development"),
+    echo=settings.database_echo,
     # For SQLite, we need check_same_thread=False
     connect_args=(
         {"check_same_thread": False, "timeout": 60}
