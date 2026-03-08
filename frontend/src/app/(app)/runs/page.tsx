@@ -15,6 +15,7 @@ import {
   ScrollText,
   Eye,
   FileText,
+  MoreVertical,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { fmtDate, fmtDateTime, fmtTimeSec } from "@/lib/formatDate";
@@ -24,6 +25,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Accordion,
   AccordionContent,
@@ -207,7 +214,7 @@ export default function RunsPage() {
                     {i + 1}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <AccordionTrigger className="hover:no-underline py-0 [&>svg]:hidden">
+                    <AccordionTrigger className="hover:no-underline py-0 [&>svg]:hidden cursor-pointer">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-medium truncate">
@@ -245,41 +252,96 @@ export default function RunsPage() {
                   </div>
 
                   <div className="ml-auto flex shrink-0 items-center gap-1">
-                    <Switch
-                      checked={run.is_enabled}
-                      onCheckedChange={() => handleToggleEnabled(run)}
-                      className="mr-1"
-                    />
+                    {/* Desktop actions */}
+                    <div className="hidden sm:flex items-center gap-1">
+                      <Switch
+                        checked={run.is_enabled}
+                        onCheckedChange={() => handleToggleEnabled(run)}
+                        className="mr-1"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        disabled={triggeringId === run.run_id || !run.is_enabled}
+                        onClick={() => handleTrigger(run)}
+                      >
+                        {triggeringId === run.run_id ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : (
+                          <Play className="size-3.5" />
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        onClick={() => setEditingRun(run)}
+                      >
+                        <Pencil className="size-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 text-danger hover:text-danger"
+                        onClick={() => setDeletingRun(run)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+
+                    {/* Mobile actions */}
+                    <div className="flex sm:hidden items-center">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="size-8">
+                            <MoreVertical className="size-4 text-muted-foreground" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleToggleEnabled(run);
+                            }}
+                          >
+                            {run.is_enabled ? "Disable Run" : "Enable Run"}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={triggeringId === run.run_id || !run.is_enabled}
+                            onClick={() => handleTrigger(run)}
+                          >
+                            <Play className="mr-2 size-4" />
+                            Trigger Run
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setEditingRun(run)}>
+                            <Pencil className="mr-2 size-4" />
+                            Edit Run
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-danger focus:text-danger"
+                            onClick={() => setDeletingRun(run)}
+                          >
+                            <Trash2 className="mr-2 size-4" />
+                            Delete Run
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+
                     <Button
                       variant="ghost"
                       size="icon"
                       className="size-8"
-                      disabled={triggeringId === run.run_id || !run.is_enabled}
-                      onClick={() => handleTrigger(run)}
+                      onClick={() => {
+                        const next = expandedRunIds.includes(run.run_id)
+                          ? expandedRunIds.filter((id) => id !== run.run_id)
+                          : [...expandedRunIds, run.run_id];
+                        handleAccordionChange(next);
+                      }}
                     >
-                      {triggeringId === run.run_id ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <Play className="size-3.5" />
-                      )}
+                      <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]/row:rotate-180" />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8"
-                      onClick={() => setEditingRun(run)}
-                    >
-                      <Pencil className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 text-danger hover:text-danger"
-                      onClick={() => setDeletingRun(run)}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                    <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]/row:rotate-180" />
                   </div>
                 </div>
 
