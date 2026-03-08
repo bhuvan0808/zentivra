@@ -1,20 +1,20 @@
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { getMe } from "@/lib/api";
 
 function PublicGuardContent({ children }: { children: React.ReactNode }) {
+  const [status, setStatus] = useState<"checking" | "guest" | "redirecting">("checking");
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [status, setStatus] = useState<"checking" | "guest" | "redirecting">("checking");
 
   useEffect(() => {
     const token = localStorage.getItem("auth_token");
 
     if (!token) {
-      setStatus("guest");
+      setTimeout(() => setStatus("guest"), 0);
       return;
     }
 
@@ -56,11 +56,13 @@ function PublicGuardContent({ children }: { children: React.ReactNode }) {
 
 export function PublicGuard({ children }: { children: React.ReactNode }) {
   return (
-    <Suspense fallback={
-      <div className="flex h-screen w-full items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    }>
+    <Suspense
+      fallback={
+        <div className="flex h-screen w-full items-center justify-center">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
       <PublicGuardContent>{children}</PublicGuardContent>
     </Suspense>
   );

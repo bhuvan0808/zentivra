@@ -1,79 +1,33 @@
 "use client";
 
-import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import Link from "next/link";
 import { ArrowLeft, Radar, Loader2 } from "lucide-react";
-import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { LiquidBlob } from "@/components/liquid-blob";
-import { signup } from "@/lib/api";
+import { useSignUp } from "@/hooks/use-sign-up";
 
 function SignUpForm() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const redirectTo = searchParams.get("redirect") || "/dashboard";
-
-  const [displayName, setDisplayName] = useState("");
-  const [username, setUsername] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-
-  function validate(): boolean {
-    const errors: Record<string, string> = {};
-    if (!displayName.trim()) errors.displayName = "Display name is required";
-    else if (displayName.length > 150)
-      errors.displayName = "Max 150 characters";
-
-    if (!username.trim()) errors.username = "Username is required";
-    else if (username.length < 3) errors.username = "At least 3 characters";
-    else if (username.length > 100) errors.username = "Max 100 characters";
-
-    const emailRegex = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
-    if (!email.trim()) errors.email = "Email is required";
-    else if (!emailRegex.test(email)) errors.email = "Invalid email format";
-
-    if (!password) errors.password = "Password is required";
-    else if (password.length < 8) errors.password = "At least 8 characters";
-
-    if (!confirmPassword)
-      errors.confirmPassword = "Please confirm your password";
-    else if (password !== confirmPassword)
-      errors.confirmPassword = "Passwords do not match";
-
-    setFieldErrors(errors);
-    return Object.keys(errors).length === 0;
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!validate()) return;
-
-    setLoading(true);
-    const res = await signup({
-      username: username.trim(),
-      email: email.trim(),
-      password,
-      display_name: displayName.trim(),
-    });
-    setLoading(false);
-
-    if (res.ok) {
-      localStorage.setItem("auth_token", res.data.auth_token);
-      localStorage.setItem("user_email", res.data.email);
-      toast.success(`Welcome to the community, ${res.data.display_name}!`);
-      router.push(redirectTo);
-    } else {
-      toast.error(res.error);
-    }
-  }
+  const {
+    displayName,
+    setDisplayName,
+    username,
+    setUsername,
+    email,
+    setEmail,
+    password,
+    setPassword,
+    confirmPassword,
+    setConfirmPassword,
+    loading,
+    fieldErrors,
+    handleSubmit,
+    redirectTo,
+  } = useSignUp();
 
   return (
     <div className="relative flex min-h-screen items-center justify-center bg-background px-4">

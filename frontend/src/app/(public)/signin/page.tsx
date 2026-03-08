@@ -1,56 +1,27 @@
 "use client";
 
-import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Radar, Loader2 } from "lucide-react";
-import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { LiquidBlob } from "@/components/liquid-blob";
-import { login } from "@/lib/api";
-
 import { PublicGuard } from "@/components/public-guard";
+import { useSignIn } from "@/hooks/use-sign-in";
 
 function SignInForm() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const redirectTo = searchParams.get("redirect") || "/dashboard";
-
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-
-  function validate(): boolean {
-    const errors: Record<string, string> = {};
-    if (!username.trim()) errors.username = "Username or Email is required";
-    else if (username.length > 100) errors.username = "Max 100 characters";
-    if (!password) errors.password = "Password is required";
-    setFieldErrors(errors);
-    return Object.keys(errors).length === 0;
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!validate()) return;
-
-    setLoading(true);
-    const res = await login({ username: username.trim(), password });
-    setLoading(false);
-
-    if (res.ok) {
-      localStorage.setItem("auth_token", res.data.auth_token);
-      localStorage.setItem("user_email", res.data.email);
-      toast.success(`Welcome back, ${res.data.display_name}!`);
-      router.push(redirectTo);
-    } else {
-      toast.error(res.error);
-    }
-  }
+  const {
+    username,
+    setUsername,
+    password,
+    setPassword,
+    loading,
+    fieldErrors,
+    handleSubmit,
+    redirectTo,
+  } = useSignIn();
 
   return (
     <motion.div
