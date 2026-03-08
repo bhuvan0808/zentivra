@@ -12,6 +12,7 @@ from apscheduler.triggers.cron import CronTrigger
 # Global scheduler instance
 _scheduler: AsyncIOScheduler | None = None
 _job_frequencies: dict[str, str] = {}
+_user_run_ids: dict[int, set[str]] = {}
 
 
 async def scheduled_run(run_id: int):
@@ -50,13 +51,14 @@ async def scheduled_run(run_id: int):
 
 async def sync_scheduler():
     """Sync the APScheduler jobs with the Runs in the database."""
-    global _scheduler, _job_frequencies
+    global _scheduler, _job_frequencies, _user_run_ids
     if not _scheduler:
         return
 
     for job in _scheduler.get_jobs():
         job.remove()
     _job_frequencies.clear()
+    _user_run_ids.clear()
 
     from app.database import async_session
     from app.models.run import Run
@@ -119,6 +121,7 @@ async def sync_scheduler():
                 replace_existing=True,
             )
             _job_frequencies[job_id] = freq
+            _user_run_ids.setdefault(run.user_id, set()).add(job_id)
             jobs_added += 1
 
     logger.info("scheduler_synced total_jobs=%d", jobs_added)
@@ -147,12 +150,17 @@ def stop_scheduler():
         logger.info("scheduler_stopped")
 
 
-def get_scheduler_status() -> dict:
-    """Get the current scheduler status."""
+def get_scheduler_status(user_id: int | None = None) -> dict:
+    """Get the current scheduler status, optionally filtered to a user's runs."""
     if _scheduler is None:
         return {"running": False, "jobs": []}
 
     jobs = _scheduler.get_jobs()
+
+    if user_id is not None:
+        allowed = _user_run_ids.get(user_id, set())
+        jobs = [j for j in jobs if j.id in allowed]
+
     return {
         "running": _scheduler.running,
         "jobs": [
