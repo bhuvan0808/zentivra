@@ -16,7 +16,6 @@ from app.config import settings, BASE_DIR
 
 connect_args: dict = {}
 
-# SSL: if CA cert path is set, load it for TLS verification; otherwise require SSL
 _cert_path_raw = settings.database_ca_cert_path
 if _cert_path_raw:
     _cert_path = Path(_cert_path_raw)

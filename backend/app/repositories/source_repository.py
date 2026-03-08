@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.source import AgentType, Source
 from app.repositories.base import BaseRepository
 
-# Sources with user_id=0 are shared across all users (system/default sources).
 _SHARED_USER_ID = 0
 
 
