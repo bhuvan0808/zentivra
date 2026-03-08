@@ -41,9 +41,13 @@ class SourceService:
 
     async def update(self, source_id: str, data: SourceUpdate, user_id: int) -> Source:
         source = await self.get_by_uuid(source_id, user_id)
+        if source.user_id == 0:
+            raise HTTPException(status_code=403, detail="Cannot modify a shared source")
         update_data = data.model_dump(exclude_unset=True)
         return await self.repo.update(source, update_data)
 
     async def delete(self, source_id: str, user_id: int) -> None:
         source = await self.get_by_uuid(source_id, user_id)
+        if source.user_id == 0:
+            raise HTTPException(status_code=403, detail="Cannot delete a shared source")
         await self.repo.delete(source)
