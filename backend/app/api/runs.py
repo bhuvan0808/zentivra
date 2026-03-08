@@ -4,8 +4,7 @@ import traceback
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 
-from app.dependencies import get_current_user, get_run_service
-from app.models.user import User
+from app.dependencies import CurrentUser, get_current_user, get_run_service
 from app.schemas.run import (
     RunCreate,
     RunCreateResponse,
@@ -15,6 +14,7 @@ from app.schemas.run import (
     RunTriggerResponse,
     RunUpdate,
 )
+from app.scheduler.scheduler import sync_scheduler
 from app.services.run_service import RunService
 
 router = APIRouter(prefix="/runs", tags=["Runs"])
@@ -27,10 +27,10 @@ router = APIRouter(prefix="/runs", tags=["Runs"])
 async def list_runs(
     limit: int = Query(20, ge=1, le=100),
     service: RunService = Depends(get_run_service),
-    _user: User = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_user),
 ):
     """List run configurations, most recent first."""
-    return await service.list_runs(limit=limit)
+    return await service.list_runs(user.id, limit=limit)
 
 
 @router.post("/", response_model=RunCreateResponse, status_code=201)
@@ -38,14 +38,15 @@ async def create_run(
     run_data: RunCreate,
     background_tasks: BackgroundTasks,
     service: RunService = Depends(get_run_service),
-    _user: User = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_user),
 ):
     """Create a new run configuration. Optionally trigger immediately."""
-    run = await service.create(run_data)
+    run = await service.create(run_data, user.id)
+    await sync_scheduler()
 
     trigger_resp = None
     if run_data.trigger_on_create:
-        trigger, _, options = await service.trigger(run.run_id)
+        trigger, _, options = await service.trigger(run.run_id, user.id)
         background_tasks.add_task(_execute_run, trigger.id, run.id, options)
         trigger_resp = RunTriggerResponse(
             run_trigger_id=trigger.run_trigger_id,
@@ -65,6 +66,7 @@ async def create_run(
         crawl_depth=run.crawl_depth,
         keywords=run.keywords,
         is_enabled=run.is_enabled,
+        has_active_triggers=False,
         created_at=run.created_at,
         updated_at=run.updated_at,
         trigger=trigger_resp,
@@ -75,10 +77,10 @@ async def create_run(
 async def get_run(
     run_id: str,
     service: RunService = Depends(get_run_service),
-    _user: User = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_user),
 ):
     """Get a run configuration by its UUID."""
-    return await service.get_by_uuid(run_id)
+    return await service.get_by_uuid(run_id, user.id)
 
 
 @router.put("/{run_id}", response_model=RunResponse)
@@ -86,20 +88,23 @@ async def update_run(
     run_id: str,
     run_data: RunUpdate,
     service: RunService = Depends(get_run_service),
-    _user: User = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_user),
 ):
     """Update a run configuration by its UUID."""
-    return await service.update(run_id, run_data)
+    result = await service.update(run_id, run_data, user.id)
+    await sync_scheduler()
+    return result
 
 
 @router.delete("/{run_id}", status_code=204)
 async def delete_run(
     run_id: str,
     service: RunService = Depends(get_run_service),
-    _user: User = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_user),
 ):
     """Delete a run configuration by its UUID."""
-    await service.delete(run_id)
+    await service.delete(run_id, user.id)
+    await sync_scheduler()
 
 
 # ── Trigger ─────────────────────────────────────────────────
@@ -111,10 +116,10 @@ async def trigger_run(
     background_tasks: BackgroundTasks,
     payload: RunTriggerRequest | None = None,
     service: RunService = Depends(get_run_service),
-    _user: User = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_user),
 ):
     """Trigger execution of a run configuration."""
-    trigger, run, options = await service.trigger(run_id, payload)
+    trigger, run, options = await service.trigger(run_id, user.id, payload)
 
     background_tasks.add_task(
         _execute_run, trigger.id, run.id, options
@@ -159,10 +164,10 @@ async def list_triggers_for_run(
     run_id: str,
     limit: int = Query(50, ge=1, le=200),
     service: RunService = Depends(get_run_service),
-    _user: User = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_user),
 ):
     """List trigger history for a run (newest first)."""
-    triggers = await service.get_triggers_for_run(run_id, limit=limit)
+    triggers = await service.get_triggers_for_run(run_id, user.id, limit=limit)
     results = []
     for t in triggers:
         digest_id = None

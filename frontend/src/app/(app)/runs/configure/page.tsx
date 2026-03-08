@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/tooltip";
 import { StatusBadge } from "@/components/status-badge";
 import { getSources, createRun } from "@/lib/api";
-import type { Source, AgentType } from "@/lib/types";
+import type { Source, AgentType, CrawlSchedule } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const STEPS = ["Basics", "Sources", "Parameters"] as const;
@@ -134,19 +134,20 @@ export default function ConfigureRunPage() {
     });
   }
 
-  function encodeFrequency(): string {
-    const freq = params.crawl_frequency;
+  function buildSchedule(): CrawlSchedule {
+    const freq = params.crawl_frequency as CrawlSchedule["frequency"];
+    const [h, m] = scheduleTime.split(":").map(Number);
+    const now = new Date();
+    now.setHours(h, m, 0, 0);
+    const utcTime = `${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}`;
+
+    let periods: string[] | null = null;
     if (freq === "weekly") {
-      const days = Array.from(scheduleDays).join(",");
-      return `weekly|${scheduleTime}|${days}`;
+      periods = Array.from(scheduleDays);
+    } else if (freq === "monthly") {
+      periods = Array.from(scheduleDates).sort((a, b) => a - b).map(String);
     }
-    if (freq === "monthly") {
-      const dates = Array.from(scheduleDates)
-        .sort((a, b) => a - b)
-        .join(",");
-      return `monthly|${scheduleTime}|${dates}`;
-    }
-    return `daily|${scheduleTime}`;
+    return { frequency: freq, time: utcTime, periods };
   }
 
   useEffect(() => {
@@ -331,10 +332,10 @@ export default function ConfigureRunPage() {
       email_recipients:
         enableEmailAlert && recipients.length > 0 ? recipients : undefined,
       sources: Array.from(selectedSourceIds),
-      crawl_frequency: encodeFrequency() || undefined,
+      crawl_frequency: buildSchedule(),
       crawl_depth: finalParams.crawl_depth,
       keywords:
-        finalParams.keywords.length > 0 ? finalParams.keywords : undefined,
+        finalParams.keywords.length > 0 ? finalParams.keywords : [],
       trigger_on_create: andTrigger,
     });
 

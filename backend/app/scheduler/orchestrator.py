@@ -91,6 +91,9 @@ class Orchestrator:
                 run_id=run.run_id,
             )
 
+            # ── Capture user_id from the run for downstream records ─
+            run_user_id: int = run.user_id
+
             # ── Mark running ────────────────────────────────────
             trigger.status = "running"
             await db.commit()
@@ -208,6 +211,7 @@ class Orchestrator:
                     await self._persist_findings(
                         all_finding_dicts,
                         trigger.id,
+                        run_user_id,
                         db,
                     )
                     run_log.info(
@@ -296,6 +300,7 @@ class Orchestrator:
                         run,
                         all_finding_dicts,
                         snapshot_ids,
+                        run_user_id,
                         db,
                     )
                     if digest_record:
@@ -561,6 +566,7 @@ class Orchestrator:
         self,
         finding_dicts: list[dict],
         run_trigger_id: int,
+        user_id: int,
         db: AsyncSession,
     ) -> None:
         """Persist all finding dicts as Finding records."""
@@ -569,6 +575,7 @@ class Orchestrator:
 
         for fd in finding_dicts:
             finding = Finding(
+                user_id=user_id,
                 run_trigger_id=run_trigger_id,
                 content=fd.get("content", ""),
                 summary=fd.get("summary", ""),
@@ -626,6 +633,7 @@ class Orchestrator:
         run: Run,
         findings: list[dict],
         snapshot_ids: list[int],
+        user_id: int,
         db: AsyncSession,
     ) -> Digest | None:
         """Compile digest, generate PDF + HTML, persist Digest record."""
@@ -649,6 +657,7 @@ class Orchestrator:
                 logger.error("pdf_render_error err=%s", str(exc)[:200])
 
             digest = Digest(
+                user_id=user_id,
                 run_trigger_id=trigger.id,
                 digest_name=digest_data.get("digest_title"),
                 pdf_path=pdf_path,

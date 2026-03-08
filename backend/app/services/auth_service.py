@@ -1,11 +1,11 @@
 """Business logic for authentication (signup, login, logout, token validation)."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 
 from app.config import settings
-from app.core.redis_client import redis_client
+from app.core.valkey_client import valkey_client
 from app.core.security import generate_auth_token, hash_password, verify_password
 from app.models.user import User
 from app.models.user_session import UserSession
@@ -15,8 +15,7 @@ from app.schemas.auth import AuthResponse
 
 
 def _utcnow() -> datetime:
-    """Return current UTC time as a naive datetime (matches SQLite storage)."""
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
 class AuthService:
@@ -77,16 +76,16 @@ class AuthService:
         )
 
     async def logout(self, auth_token: str) -> None:
-        await redis_client.delete_session(auth_token)
+        await valkey_client.delete_session(auth_token)
 
         session = await self.session_repo.get_by_token(auth_token)
         if session:
             await self.session_repo.deactivate(session, _utcnow())
 
     async def validate_token(self, auth_token: str) -> User:
-        cached_user_id = await redis_client.get_session(auth_token)
-        if cached_user_id:
-            user = await self.repo.get_by_uuid(cached_user_id)
+        cached = await valkey_client.get_session(auth_token)
+        if cached:
+            user = await self.repo.get_by_id(cached["id"])
             if user and user.is_enabled:
                 return user
 
@@ -94,9 +93,13 @@ class AuthService:
         if not session or not session.is_active:
             raise HTTPException(status_code=401, detail="Invalid or expired session")
 
-        if session.expires_at < _utcnow():
-            await self.session_repo.deactivate(session, _utcnow())
-            await redis_client.delete_session(auth_token)
+        now = _utcnow()
+        expires = session.expires_at
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if expires < now:
+            await self.session_repo.deactivate(session, now)
+            await valkey_client.delete_session(auth_token)
             raise HTTPException(status_code=401, detail="Session expired")
 
         user = await self.repo.get_by_id(session.user_id)
@@ -111,7 +114,7 @@ class AuthService:
     async def invalidate_all_sessions(self, user_id: int) -> None:
         """Revoke every active session for a user (password change, account disable)."""
         tokens = await self.session_repo.deactivate_all_for_user(user_id, _utcnow())
-        await redis_client.delete_sessions(tokens)
+        await valkey_client.delete_sessions(tokens)
 
     async def _create_session(
         self, user_pk: int, user_uuid: str
@@ -129,10 +132,15 @@ class AuthService:
             is_active=True,
         )
         await self.session_repo.create(session)
-
-        # Commit now so subsequent requests (separate sessions) can see the row
         await self.session_repo.db.commit()
 
-        await redis_client.create_session(user_uuid, token, ttl_hours * 3600)
+        await valkey_client.create_session(
+            user_pk=user_pk,
+            user_uuid=user_uuid,
+            session_id=session.user_session_id,
+            auth_token=token,
+            ttl_seconds=ttl_hours * 3600,
+            expires_at=expires_at.isoformat(),
+        )
 
         return token, expires_at

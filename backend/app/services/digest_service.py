@@ -13,23 +13,23 @@ class DigestService:
     def __init__(self, repo: DigestRepository):
         self.repo = repo
 
-    async def list_digests(self, limit: int = 30) -> Sequence[Digest]:
-        return await self.repo.get_all_ordered(limit=limit)
+    async def list_digests(self, user_id: int, limit: int = 30) -> Sequence[Digest]:
+        return await self.repo.get_all_ordered(user_id, limit=limit)
 
-    async def get_latest(self) -> Digest:
-        digest = await self.repo.get_latest()
+    async def get_latest(self, user_id: int) -> Digest:
+        digest = await self.repo.get_latest(user_id)
         if not digest:
             raise HTTPException(status_code=404, detail="No digests found")
         return digest
 
-    async def get_by_uuid(self, digest_id: str) -> Digest:
-        digest = await self.repo.get_by_uuid(digest_id)
+    async def get_by_uuid(self, digest_id: str, user_id: int) -> Digest:
+        digest = await self.repo.get_by_uuid(digest_id, user_id=user_id)
         if not digest:
             raise HTTPException(status_code=404, detail="Digest not found")
         return digest
 
-    async def get_html_path(self, digest_id: str) -> Path:
-        digest = await self.get_by_uuid(digest_id)
+    async def get_html_path(self, digest_id: str, user_id: int) -> Path:
+        digest = await self.get_by_uuid(digest_id, user_id)
         if not digest.html_path:
             raise HTTPException(
                 status_code=404, detail="HTML not yet generated for this digest"
@@ -39,8 +39,8 @@ class DigestService:
             raise HTTPException(status_code=404, detail="HTML file not found on disk")
         return html_path
 
-    async def get_pdf_path(self, digest_id: str) -> Path:
-        digest = await self.get_by_uuid(digest_id)
+    async def get_pdf_path(self, digest_id: str, user_id: int) -> Path:
+        digest = await self.get_by_uuid(digest_id, user_id)
         if not digest.pdf_path:
             raise HTTPException(
                 status_code=404, detail="PDF not yet generated for this digest"

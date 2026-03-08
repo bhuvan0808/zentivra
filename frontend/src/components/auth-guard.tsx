@@ -8,16 +8,17 @@ import { toast } from "sonner";
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname(); // keep for fallback/render purposes if needed elsewhere, though only used initially now
   const [status, setStatus] = useState<"checking" | "authenticated">(
     "checking",
   );
 
   useEffect(() => {
     const token = localStorage.getItem("auth_token");
+    const currentPath = window.location.pathname;
 
     if (!token) {
-      router.replace(`/?redirect=${encodeURIComponent(pathname)}`);
+      router.replace(`/?redirect=${encodeURIComponent(currentPath)}`);
       return;
     }
 
@@ -31,14 +32,14 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       } else {
         localStorage.removeItem("auth_token");
         toast.warning("Session expired. Please login again.");
-        router.replace(`/?redirect=${encodeURIComponent(pathname)}`);
+        router.replace(`/?redirect=${encodeURIComponent(currentPath)}`);
       }
     });
 
     return () => {
       cancelled = true;
     };
-  }, [pathname, router]);
+  }, [router]);
 
   if (status === "checking") {
     return (
