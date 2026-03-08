@@ -6,7 +6,11 @@ import {
   updateSource,
   deleteSource,
 } from "@/lib/api";
-import { validateSourceForm, toSlug, type ValidationError } from "@/lib/validation";
+import {
+  validateSourceForm,
+  toSlug,
+  type ValidationError,
+} from "@/lib/validation";
 import type { Source, SourceCreate, AgentType } from "@/lib/types";
 
 export const EMPTY_FORM = {

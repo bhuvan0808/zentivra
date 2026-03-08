@@ -13,7 +13,12 @@ interface AnimatedRowProps {
 
 const MotionTableRow = motion.create(TableRow);
 
-export function AnimatedRow({ index, children, className, onClick }: AnimatedRowProps) {
+export function AnimatedRow({
+  index,
+  children,
+  className,
+  onClick,
+}: AnimatedRowProps) {
   return (
     <MotionTableRow
       initial={{ opacity: 0, filter: "blur(4px)" }}

@@ -21,7 +21,12 @@ import type {
   LogPreview,
 } from "@/lib/types";
 
-const TERMINAL_STATUSES = new Set(["completed", "failed", "partial", "completed_empty"]);
+const TERMINAL_STATUSES = new Set([
+  "completed",
+  "failed",
+  "partial",
+  "completed_empty",
+]);
 
 export function isTerminalStatus(status: string): boolean {
   return TERMINAL_STATUSES.has(status);
@@ -78,24 +83,34 @@ export function useRuns(): UseRunsReturn {
   const [loading, setLoading] = useState(true);
   const [triggeringId, setTriggeringId] = useState<string | null>(null);
   const [deletingRun, setDeletingRun] = useState<Run | null>(null);
-  
-  const [triggerHistory, setTriggerHistory] = useState<Record<string, RunTrigger[]>>({});
-  const [loadingTriggers, setLoadingTriggers] = useState<Set<string>>(new Set());
+
+  const [triggerHistory, setTriggerHistory] = useState<
+    Record<string, RunTrigger[]>
+  >({});
+  const [loadingTriggers, setLoadingTriggers] = useState<Set<string>>(
+    new Set(),
+  );
   const [editingRun, setEditingRun] = useState<Run | null>(null);
-  const [selectedTrigger, setSelectedTrigger] = useState<RunTrigger | null>(null);
-  
+  const [selectedTrigger, setSelectedTrigger] = useState<RunTrigger | null>(
+    null,
+  );
+
   const [triggerFindings, setTriggerFindings] = useState<Finding[]>([]);
   const [triggerSnapshots, setTriggerSnapshots] = useState<Snapshot[]>([]);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
   // Execution logs state
   const [agentLogs, setAgentLogs] = useState<AgentLogSummary[]>([]);
-  const [logPreviews, setLogPreviews] = useState<Record<string, LogPreview>>({});
-  const [loadingLogPreview, setLoadingLogPreview] = useState<string | null>(null);
+  const [logPreviews, setLogPreviews] = useState<Record<string, LogPreview>>(
+    {},
+  );
+  const [loadingLogPreview, setLoadingLogPreview] = useState<string | null>(
+    null,
+  );
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
-  
+
   const [expandedRunIds, setExpandedRunIds] = useState<string[]>([]);
-  
+
   const triggerHistoryRef = useRef(triggerHistory);
   useEffect(() => {
     triggerHistoryRef.current = triggerHistory;
@@ -156,7 +171,10 @@ export function useRuns(): UseRunsReturn {
       toast.success(res.data.message);
       const triggersRes = await getRunTriggers(run.run_id, 10);
       if (triggersRes.ok) {
-        setTriggerHistory((prev) => ({ ...prev, [run.run_id]: triggersRes.data }));
+        setTriggerHistory((prev) => ({
+          ...prev,
+          [run.run_id]: triggersRes.data,
+        }));
       }
       setExpandedRunIds((prev) =>
         prev.includes(run.run_id) ? prev : [...prev, run.run_id],

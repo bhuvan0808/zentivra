@@ -6,7 +6,9 @@ import { Loader2 } from "lucide-react";
 import { getMe } from "@/lib/api";
 
 function PublicGuardContent({ children }: { children: React.ReactNode }) {
-  const [status, setStatus] = useState<"checking" | "guest" | "redirecting">("checking");
+  const [status, setStatus] = useState<"checking" | "guest" | "redirecting">(
+    "checking",
+  );
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -20,23 +22,25 @@ function PublicGuardContent({ children }: { children: React.ReactNode }) {
 
     let cancelled = false;
 
-    getMe().then((res) => {
-      if (cancelled) return;
+    getMe()
+      .then((res) => {
+        if (cancelled) return;
 
-      if (res.ok) {
-        setStatus("redirecting");
-        const redirect = searchParams.get("redirect") || "/dashboard";
-        router.replace(redirect);
-      } else {
-        // Token exists but is invalid/expired
-        localStorage.removeItem("auth_token");
+        if (res.ok) {
+          setStatus("redirecting");
+          const redirect = searchParams.get("redirect") || "/dashboard";
+          router.replace(redirect);
+        } else {
+          // Token exists but is invalid/expired
+          localStorage.removeItem("auth_token");
+          setStatus("guest");
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // On network error, treat as guest so they can at least see the public page
         setStatus("guest");
-      }
-    }).catch(() => {
-      if (cancelled) return;
-      // On network error, treat as guest so they can at least see the public page
-      setStatus("guest");
-    });
+      });
 
     return () => {
       cancelled = true;

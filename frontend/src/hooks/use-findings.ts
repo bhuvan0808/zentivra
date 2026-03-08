@@ -7,7 +7,9 @@ export interface UseFindingsReturn {
   findings: Finding[];
   loading: boolean;
   expandedId: string | null;
-  setExpandedId: (v: string | null | ((prev: string | null) => string | null)) => void;
+  setExpandedId: (
+    v: string | null | ((prev: string | null) => string | null),
+  ) => void;
   category: string;
   setCategory: (v: string) => void;
   minConfidence: string;

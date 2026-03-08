@@ -151,7 +151,9 @@ export function useRunConfigure(): UseRunConfigureReturn {
     if (freq === "weekly") {
       periods = Array.from(scheduleDays);
     } else if (freq === "monthly") {
-      periods = Array.from(scheduleDates).sort((a, b) => a - b).map(String);
+      periods = Array.from(scheduleDates)
+        .sort((a, b) => a - b)
+        .map(String);
     }
     return { frequency: freq, time: utcTime, periods };
   }
@@ -340,8 +342,7 @@ export function useRunConfigure(): UseRunConfigureReturn {
       sources: Array.from(selectedSourceIds),
       crawl_frequency: buildSchedule(),
       crawl_depth: finalParams.crawl_depth,
-      keywords:
-        finalParams.keywords.length > 0 ? finalParams.keywords : [],
+      keywords: finalParams.keywords.length > 0 ? finalParams.keywords : [],
       trigger_on_create: andTrigger,
     });
 

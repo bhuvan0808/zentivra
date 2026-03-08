@@ -72,7 +72,8 @@ function utcToLocal(utcTime: string): string {
 
 function ScheduleTooltip({ schedule }: { schedule: CrawlSchedule }) {
   const localTime = utcToLocal(schedule.time);
-  const freq = schedule.frequency.charAt(0).toUpperCase() + schedule.frequency.slice(1);
+  const freq =
+    schedule.frequency.charAt(0).toUpperCase() + schedule.frequency.slice(1);
 
   return (
     <Tooltip delayDuration={200}>
@@ -81,7 +82,12 @@ function ScheduleTooltip({ schedule }: { schedule: CrawlSchedule }) {
           {freq}
         </span>
       </TooltipTrigger>
-      <TooltipContent side="bottom" align="start" className="bg-popover text-popover-foreground border shadow-md text-xs space-y-1 p-2.5" hideArrow>
+      <TooltipContent
+        side="bottom"
+        align="start"
+        className="bg-popover text-popover-foreground border shadow-md text-xs space-y-1 p-2.5"
+        hideArrow
+      >
         <div className="flex items-center gap-2">
           <span className="text-muted-foreground">Frequency</span>
           <span className="font-medium">{freq}</span>
@@ -935,7 +941,12 @@ function RunEditDialog({
           {/* Crawl Frequency */}
           <div className="space-y-2.5">
             <Label>Crawl Frequency</Label>
-            <Select value={crawlFrequency} onValueChange={(v) => setCrawlFrequency(v as CrawlSchedule["frequency"])}>
+            <Select
+              value={crawlFrequency}
+              onValueChange={(v) =>
+                setCrawlFrequency(v as CrawlSchedule["frequency"])
+              }
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -1071,11 +1082,7 @@ function RunEditDialog({
                   }
                 }}
               />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={addKeyword}
-              >
+              <Button variant="outline" size="sm" onClick={addKeyword}>
                 Add
               </Button>
             </div>
