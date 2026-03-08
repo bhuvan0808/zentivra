@@ -87,7 +87,6 @@ export function LiquidBlob() {
 
   return (
     <>
-      {/* eslint-disable-next-line react/no-danger */}
       <style dangerouslySetInnerHTML={{ __html: STYLES }} />
 
       {/* Ambient background blobs */}

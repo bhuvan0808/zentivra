@@ -1,8 +1,10 @@
-"""
-Fetcher Layer - HTTP content fetching with retry, robots.txt, and rate limiting.
+"""Fetcher layer — HTTP/RSS/Playwright URL fetching with retries.
+
+First stage of the pipeline: fetch -> extract -> preprocess -> summarize -> dedup -> rank.
 
 Primary: async httpx for fast HTTP fetching.
-Fallback: Playwright for JavaScript-rendered pages (when content seems empty).
+Fallback: Playwright for JavaScript-rendered pages (when content seems empty or bot-blocked).
+Respects robots.txt, per-domain rate limiting, and exponential backoff on retries.
 """
 
 import asyncio
@@ -22,7 +24,20 @@ USER_AGENT = "Zentivra/1.0 (AI Research Intelligence Bot)"
 
 @dataclass
 class FetchResult:
-    """Result of fetching a URL."""
+    """Result of fetching a URL.
+
+    Attributes:
+        url: Requested URL.
+        status_code: HTTP status code (0 if fetch failed before response).
+        content: Raw response body (HTML, XML, etc.).
+        content_hash: SHA256 hash of content (auto-computed if content present).
+        content_type: Content-Type header value.
+        error: Error message if success=False.
+        success: True if fetch succeeded.
+        method: "httpx" or "playwright".
+        redirected_url: Final URL after redirects, or None if unchanged.
+        headers: Response headers as dict.
+    """
 
     url: str
     status_code: int
@@ -41,7 +56,11 @@ class FetchResult:
 
 
 class RobotsChecker:
-    """Check robots.txt rules for URLs."""
+    """Check robots.txt rules for URLs.
+
+    Caches robots.txt per domain and parses Disallow rules to determine
+    whether the user agent is allowed to fetch a given URL.
+    """
 
     def __init__(self):
         self._cache: dict[str, Optional[str]] = {}
@@ -80,7 +99,11 @@ class RobotsChecker:
             return self._basic_robots_check(robots_txt, url)
 
     def _basic_robots_check(self, robots_txt: str, url: str) -> bool:
-        """Basic robots.txt check without external library."""
+        """Basic robots.txt check without external library.
+
+        Parses User-agent and Disallow lines; returns False if path matches
+        a Disallow rule for our agent.
+        """
         parsed = urlparse(url)
         path = parsed.path
 
@@ -114,6 +137,7 @@ class Fetcher:
         max_retries: Optional[int] = None,
         respect_robots: bool = True,
     ):
+        """Initialize fetcher with timeout, retry count, and robots.txt behavior."""
         configured_timeout = (
             timeout if timeout is not None else settings.http_fetch_timeout_seconds
         )
@@ -127,7 +151,7 @@ class Fetcher:
         self._client: Optional[httpx.AsyncClient] = None
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create the HTTP client."""
+        """Get or create the HTTP client. Reuses existing client if still open."""
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
                 headers={
@@ -146,14 +170,19 @@ class Fetcher:
         rate_limit_rpm: int = 10,
         use_playwright_fallback: bool = True,
     ) -> FetchResult:
-        """
-        Fetch content from a URL.
+        """Fetch content from a URL.
 
-        1. Check robots.txt
-        2. Apply rate limiting
-        3. Fetch with httpx
-        4. If content seems JS-rendered (empty body), try Playwright
-        5. Return FetchResult with content + hash
+        Flow: (1) Check robots.txt; (2) Apply rate limiting; (3) Fetch with httpx;
+        (4) On 403/406/429 or JS-rendered content, try Playwright fallback;
+        (5) Return FetchResult with content and hash.
+
+        Args:
+            url: URL to fetch.
+            rate_limit_rpm: Max requests per minute per domain.
+            use_playwright_fallback: Whether to try Playwright on bot-block or JS-heavy pages.
+
+        Returns:
+            FetchResult with content, status, and metadata. success=False on error.
         """
         client = await self._get_client()
 
@@ -182,7 +211,9 @@ class Fetcher:
             and result.status_code in (403, 406, 429)
         ):
             logger.info(
-                "playwright_fallback url=%s reason=HTTP %d", url, result.status_code,
+                "playwright_fallback url=%s reason=HTTP %d",
+                url,
+                result.status_code,
             )
             pw_result = await self._fetch_with_playwright(url)
             if pw_result.success:
@@ -206,7 +237,12 @@ class Fetcher:
     async def _fetch_with_httpx(
         self, url: str, client: httpx.AsyncClient
     ) -> FetchResult:
-        """Fetch using httpx with exponential backoff retry."""
+        """Fetch using httpx with exponential backoff retry.
+
+        Retries on 429/503 with 2^(attempt+1) second delay. On timeout/connect
+        errors, retries up to max_retries times. Returns FetchResult with
+        success=False and error message if all retries fail.
+        """
         last_error = None
 
         for attempt in range(self.max_retries):
@@ -278,7 +314,9 @@ class Fetcher:
     async def _fetch_with_playwright(self, url: str) -> FetchResult:
         """Fetch using Playwright for JavaScript-rendered pages.
 
-        Uses sync_api in a thread to avoid Windows asyncio subprocess issues.
+        Uses sync_api in a thread (asyncio.to_thread) to avoid Windows asyncio
+        subprocess issues. Returns FetchResult with success=False if Playwright
+        is not installed or an error occurs.
         """
         try:
             from playwright.sync_api import sync_playwright
@@ -346,7 +384,17 @@ class Fetcher:
         rate_limit_rpm: int = 10,
         max_concurrent: int = 5,
     ) -> list[FetchResult]:
-        """Fetch multiple URLs with concurrency control."""
+        """Fetch multiple URLs with concurrency control.
+
+        Args:
+            urls: List of URLs to fetch.
+            rate_limit_rpm: Max requests per minute per domain.
+            max_concurrent: Max concurrent fetches (semaphore limit).
+
+        Returns:
+            List of FetchResult in same order as urls. Exceptions are
+            converted to FetchResult with success=False and error set.
+        """
         semaphore = asyncio.Semaphore(max_concurrent)
 
         async def _bounded_fetch(url: str) -> FetchResult:
@@ -376,6 +424,6 @@ class Fetcher:
         return final
 
     async def close(self):
-        """Close the HTTP client."""
+        """Close the HTTP client. Safe to call if already closed."""
         if self._client and not self._client.is_closed:
             await self._client.aclose()

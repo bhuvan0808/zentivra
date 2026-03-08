@@ -10,7 +10,7 @@ Run with:
 from app.utils.logger import logger
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -18,11 +18,17 @@ from fastapi.responses import JSONResponse
 from app.config import settings
 from app.database import close_db
 from app.api.router import api_router
+from app.dependencies import CurrentUser, get_current_user
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application startup and shutdown lifecycle."""
+    """
+    Application lifespan manager: startup and shutdown sequence.
+
+    Startup order: log env -> connect Valkey -> log LLM/email config -> start scheduler.
+    Shutdown order: stop scheduler -> close Valkey -> dispose DB engine -> log shutdown.
+    """
     # ── Startup ──────────────────────────────────────────────────────────
     logger.info("zentivra_startup env=%s", settings.app_env.value)
 
@@ -130,8 +136,10 @@ async def health_check():
 
 
 @app.get("/scheduler", tags=["Health"])
-async def scheduler_status():
-    """Get scheduler status and next run time."""
+async def scheduler_status(
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Get scheduler status and upcoming runs for the authenticated user."""
     from app.scheduler.scheduler import get_scheduler_status
 
-    return get_scheduler_status()
+    return get_scheduler_status(user_id=user.id)

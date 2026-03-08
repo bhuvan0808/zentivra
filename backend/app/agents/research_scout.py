@@ -1,26 +1,52 @@
 """
 Agent #3 - Research Publication Scout.
 
-Scans arXiv, Semantic Scholar, and curated research lab blogs
-for the latest AI/ML research publications.
+Domain focus: Discovers academic papers and research publications.
+Produces findings from arXiv, Semantic Scholar, and curated research lab
+blogs. Adjusts confidence based on relevance keywords (benchmark, agent,
+RLHF, SOTA, etc.).
 """
 
 from app.agents.base_agent import BaseAgent
 from app.models.source import Source
 from app.utils.logger import logger
 
+# Keyword weights for relevance scoring (higher = more relevant)
 RELEVANCE_KEYWORDS = {
-    "benchmark": 2, "evaluation": 2, "agent": 3, "multimodal": 2,
-    "reasoning": 2, "safety": 2, "alignment": 2, "scaling": 2,
-    "fine-tuning": 1, "instruction tuning": 2, "RLHF": 3,
-    "chain-of-thought": 2, "in-context learning": 2, "RAG": 2,
-    "tool use": 2, "function calling": 2, "SOTA": 3,
-    "state-of-the-art": 3, "LLM": 2, "foundation model": 2,
+    "benchmark": 2,
+    "evaluation": 2,
+    "agent": 3,
+    "multimodal": 2,
+    "reasoning": 2,
+    "safety": 2,
+    "alignment": 2,
+    "scaling": 2,
+    "fine-tuning": 1,
+    "instruction tuning": 2,
+    "RLHF": 3,
+    "chain-of-thought": 2,
+    "in-context learning": 2,
+    "RAG": 2,
+    "tool use": 2,
+    "function calling": 2,
+    "SOTA": 3,
+    "state-of-the-art": 3,
+    "LLM": 2,
+    "foundation model": 2,
     "transformer": 1,
 }
 
 
 class ResearchScout(BaseAgent):
+    """
+    Discovers academic papers and research publications.
+
+    Specialization vs BaseAgent: Custom discover_urls() for Semantic Scholar
+    API - queries papers by "large language model foundation model", returns
+    paper URLs. For non-Semantic Scholar sources, uses source.url. Post-processes
+    to set category "research" and adjust confidence by relevance score.
+    Content type: "research publication / academic paper".
+    """
 
     @property
     def agent_type(self) -> str:
@@ -30,6 +56,7 @@ class ResearchScout(BaseAgent):
         return "research publication / academic paper"
 
     async def discover_urls(self, source: Source) -> list[str]:
+        """Override: Semantic Scholar sources use API search; others use source.url."""
         urls = []
 
         if "semanticscholar" in source.url:
@@ -41,8 +68,11 @@ class ResearchScout(BaseAgent):
         return urls
 
     async def _discover_from_semantic_scholar(
-        self, source: Source, limit: int = 10,
+        self,
+        source: Source,
+        limit: int = 10,
     ) -> list[str]:
+        """Query Semantic Scholar API for recent LLM/foundation model papers."""
         try:
             from app.config import settings
             import httpx
@@ -79,13 +109,18 @@ class ResearchScout(BaseAgent):
             return []
 
     async def post_process_finding(
-        self, finding: dict, extraction, source: Source,
+        self,
+        finding: dict,
+        extraction,
+        source: Source,
     ) -> dict:
+        """Set category to research; adjust confidence by relevance keyword score."""
         finding["category"] = "research"
 
         text = f"{finding.get('summary', '')} {finding.get('content', '')}".lower()
         relevance_score = sum(
-            weight for keyword, weight in RELEVANCE_KEYWORDS.items()
+            weight
+            for keyword, weight in RELEVANCE_KEYWORDS.items()
             if keyword.lower() in text
         )
 

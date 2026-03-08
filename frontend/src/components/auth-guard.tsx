@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { getMe } from "@/lib/api";
 import { toast } from "sonner";
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
-  const pathname = usePathname(); // keep for fallback/render purposes if needed elsewhere, though only used initially now
+  const router = useRouter(); // keep for fallback/render purposes if needed elsewhere, though only used initially now
   const [status, setStatus] = useState<"checking" | "authenticated">(
     "checking",
   );

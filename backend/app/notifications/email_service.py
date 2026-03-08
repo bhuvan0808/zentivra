@@ -1,10 +1,17 @@
 """
-Email Notification Service - Send digest emails via SendGrid or SMTP.
+Email Notification Service — sends digest emails via SendGrid or SMTP.
 
-Sends:
-- Executive summary snippet as email body
-- PDF attachment
+Post-processing component: runs after the digest pipeline has produced
+HTML/PDF. Delivers notifications containing:
+- Executive summary snippet as HTML email body
+- PDF attachment (when available)
 - Link to web dashboard
+
+SendGrid vs SMTP fallback:
+- Primary: SendGrid API when SENDGRID_API_KEY is configured and valid.
+- Fallback: If SendGrid is configured but fails (API error, network, etc.),
+  the service automatically falls back to SMTP when SMTP settings are present.
+- SMTP-only: When SendGrid is not configured, SMTP is used directly.
 """
 
 import smtplib
@@ -22,7 +29,13 @@ from app.config import settings
 
 class EmailService:
     """
-    Email delivery service supporting SendGrid and SMTP.
+    Email delivery service supporting SendGrid (primary) and SMTP (fallback).
+
+    Provider selection:
+    1. If SendGrid API key is set and valid → use SendGrid.
+    2. If SendGrid fails and SMTP is configured → fall back to SMTP.
+    3. If only SMTP is configured → use SMTP directly.
+    4. If neither is configured → return False and log error.
 
     Usage:
         service = EmailService()
@@ -43,9 +56,21 @@ class EmailService:
         dashboard_url: str = "http://localhost:3000",
     ) -> bool:
         """
-        Send the daily digest email.
+        Send the daily digest email to recipients.
 
-        Returns True if sent successfully, False otherwise.
+        Normalizes and deduplicates recipients, builds HTML body, and sends
+        via SendGrid or SMTP (with fallback as documented in module docstring).
+        Skips send if no recipients or email is not configured.
+
+        Args:
+            recipients: List of email addresses.
+            subject: Email subject line.
+            executive_summary: Summary text for the email body.
+            pdf_path: Optional path to PDF attachment.
+            dashboard_url: Link to web dashboard in the email.
+
+        Returns:
+            True if sent successfully, False otherwise.
         """
         normalized_recipients = [
             r.strip().lower() for r in recipients if isinstance(r, str) and r.strip()
@@ -62,9 +87,7 @@ class EmailService:
             return False
 
         # Build HTML email body
-        html_body = self._build_email_body(
-            executive_summary, dashboard_url, pdf_path
-        )
+        html_body = self._build_email_body(executive_summary, dashboard_url, pdf_path)
 
         try:
             use_sendgrid = bool(
@@ -106,7 +129,12 @@ class EmailService:
         html_body: str,
         pdf_path: Optional[str],
     ) -> bool:
-        """Send email via SendGrid API."""
+        """
+        Send email via SendGrid API.
+
+        Attaches PDF if pdf_path exists. Returns True for status 200/201/202.
+        Returns False on ImportError (sendgrid not installed) or API/network errors.
+        """
         try:
             from sendgrid import SendGridAPIClient
             from sendgrid.helpers.mail import (
@@ -164,7 +192,13 @@ class EmailService:
         html_body: str,
         pdf_path: Optional[str],
     ) -> bool:
-        """Send email via SMTP (e.g., Gmail)."""
+        """
+        Send email via SMTP (e.g., Gmail, custom mail server).
+
+        Uses SMTP_SSL or SMTP with optional STARTTLS. Attaches PDF if pdf_path
+        exists. Normalizes Gmail app passwords (removes spaces) when applicable.
+        Returns False on connection/auth/send errors.
+        """
         try:
             msg = MIMEMultipart("mixed")
             msg["From"] = settings.email_from
@@ -224,11 +258,18 @@ class EmailService:
         dashboard_url: str,
         pdf_path: Optional[str],
     ) -> str:
-        """Build a nice HTML email body."""
+        """
+        Build HTML email body with executive summary and dashboard CTA.
+
+        Converts markdown-style newlines to HTML. Includes styled header,
+        summary block, and footer. pdf_path is unused but kept for API consistency.
+        """
         today = date.today().strftime("%B %d, %Y")
 
         # Convert markdown-ish text to basic HTML
-        summary_html = executive_summary.replace("\n\n", "</p><p>").replace("\n", "<br>")
+        summary_html = executive_summary.replace("\n\n", "</p><p>").replace(
+            "\n", "<br>"
+        )
         if not summary_html.startswith("<p>"):
             summary_html = f"<p>{summary_html}</p>"
 

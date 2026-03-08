@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -8,7 +7,6 @@ import {
   Filter,
   Inbox,
 } from "lucide-react";
-import { toast } from "sonner";
 import { fmtDate } from "@/lib/formatDate";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge, getConfidenceVariant } from "@/components/status-badge";
@@ -23,9 +21,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getFindings } from "@/lib/api";
 import { motion } from "framer-motion";
-import type { Finding, FindingCategory } from "@/lib/types";
+import type { FindingCategory } from "@/lib/types";
+import { useFindings } from "@/hooks/use-findings";
 
 const CATEGORY_OPTIONS: { value: FindingCategory | "all"; label: string }[] = [
   { value: "all", label: "All Categories" },
@@ -40,37 +38,19 @@ const CATEGORY_OPTIONS: { value: FindingCategory | "all"; label: string }[] = [
 ];
 
 export default function FindingsPage() {
-  const [findings, setFindings] = useState<Finding[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  const [category, setCategory] = useState<string>("all");
-  const [minConfidence, setMinConfidence] = useState<string>("0");
-  const [page, setPage] = useState(1);
-  const pageSize = 12;
-
-  const fetchFindings = useCallback(async () => {
-    setLoading(true);
-    const res = await getFindings({
-      page,
-      page_size: pageSize,
-      category: category !== "all" ? (category as FindingCategory) : undefined,
-      min_confidence: minConfidence !== "0" ? Number(minConfidence) : undefined,
-    });
-    if (res.ok) {
-      setFindings(res.data);
-    } else {
-      toast.error(res.error);
-    }
-    setLoading(false);
-  }, [page, category, minConfidence]);
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      void fetchFindings();
-    }, 0);
-    return () => window.clearTimeout(timeoutId);
-  }, [fetchFindings]);
+  const {
+    findings,
+    loading,
+    expandedId,
+    setExpandedId,
+    category,
+    setCategory,
+    minConfidence,
+    setMinConfidence,
+    page,
+    setPage,
+    pageSize,
+  } = useFindings();
 
   return (
     <div>
@@ -225,7 +205,7 @@ export default function FindingsPage() {
                               <Separator />
                               <div>
                                 <p className="data-label mb-1">Content</p>
-                                <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                                <p className="text-sm leading-relaxed whitespace-pre-wrap [word-break:break-word]">
                                   {finding.content}
                                 </p>
                               </div>

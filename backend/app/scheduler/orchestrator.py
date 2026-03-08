@@ -1,14 +1,39 @@
 """
-Orchestrator - Coordinates the full pipeline for a triggered run.
+Orchestrator - Central coordinator for the full pipeline execution.
 
-Pipeline layers (each is a distinct step):
-1. Source Resolution   - resolve source UUIDs from Run config to Source objects
-2. Parallel Agents     - fetch -> extract -> preprocess -> AI summarize per source URL
-3. Finding Persistence - write Finding records to DB
-4. Snapshot Generation - write per-source execution summary to DB
-5. Digest Compilation  - aggregate, dedup, rank findings
-6. PDF Generation      - render PDF + HTML from digest
-7. Email Sending       - send digest email (conditional)
+Coordinates the entire pipeline for a triggered run. Key flow:
+
+1. Resolve sources for the run - Map source UUIDs from Run config to Source
+   objects, grouped by agent type.
+
+2. Run agents in parallel - Each agent processes its sources via BFS crawl ->
+   fetch -> extract -> preprocess -> summarize. Agents run concurrently.
+
+3. Consume structured agent results - Collect findings, errors, urls_attempted,
+   urls_succeeded from each agent. Determine per-agent status (completed,
+   completed_empty, partial, failed).
+
+4. Persist findings to DB - Write Finding records for all extracted findings.
+
+5. Create snapshots per source - Per-source execution summary records in DB.
+
+6. Determine trigger status - Aggregate agent outcomes into final status:
+   completed, completed_empty, partial, or failed.
+
+7. Conditional PDF/HTML digest generation - Only when run enables it and
+   status is not failed/completed_empty and findings exist.
+
+8. Conditional email notification - Best-effort send when email is enabled
+   and digest PDF was generated.
+
+Error handling strategy:
+- On source resolution failure: immediate DB commit, status=failed, return.
+- On finding persistence failure: immediate DB commit, status=failed, return.
+- On snapshot creation failure: log only, continue (non-fatal).
+- On digest generation failure when status would be completed: downgrade to
+  partial, commit.
+- On any uncaught exception in execute(): status=failed, attempt commit,
+  log commit failure if it occurs.
 
 Execution state lives on RunTrigger, NOT on Run (which is pure config).
 """
@@ -52,6 +77,13 @@ LOG_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "logs"
 
 
 class Orchestrator:
+    """
+    Central orchestrator that coordinates the full pipeline execution.
+
+    Manages source resolution, parallel agent execution, finding persistence,
+    snapshot creation, digest generation, and email notification. Uses
+    immediate DB commits on failure to ensure trigger status is persisted.
+    """
 
     def __init__(self):
         self.digest_compiler = DigestCompiler()
@@ -64,7 +96,13 @@ class Orchestrator:
         run_id: int,
         options: dict | None = None,
     ):
-        """Entry point called by the background task."""
+        """
+        Entry point for pipeline execution, called by the background task.
+
+        Error handling: On source resolution or finding persistence failure,
+        status is set to "failed" and committed immediately before returning.
+        On uncaught exception, status is set to "failed" and commit is attempted.
+        """
         opts = options or {}
         logger.info(
             "pipeline_start run_trigger_id=%s run_id=%s", run_trigger_id, run_id
@@ -101,6 +139,7 @@ class Orchestrator:
 
             try:
                 # ── 1. Source resolution ────────────────────────────
+                # Resolve source UUIDs from run config -> grouped Source objects.
                 try:
                     sources_by_type = await self._resolve_sources(run, db, opts)
                 except Exception as exc:
@@ -142,6 +181,7 @@ class Orchestrator:
                     return
 
                 # ── 2. Parallel agent execution ─────────────────────
+                # Each agent: BFS crawl -> fetch -> extract -> preprocess -> summarize.
                 run_log.info(
                     "agents_starting",
                     step="pipeline",
@@ -154,6 +194,7 @@ class Orchestrator:
                 )
 
                 # ── 3. Consume structured agent results ─────────────
+                # Collect findings, errors, urls_attempted, urls_succeeded; derive agent status.
                 all_finding_dicts: list[dict] = []
                 agent_statuses: dict[str, str] = {}
 
@@ -207,6 +248,7 @@ class Orchestrator:
                         )
 
                 # ── 4. Finding persistence ──────────────────────────
+                # Write Finding records to DB. On failure: immediate commit, status=failed.
                 try:
                     await self._persist_findings(
                         all_finding_dicts,
@@ -236,6 +278,7 @@ class Orchestrator:
                     return
 
                 # ── 5. Snapshot generation ──────────────────────────
+                # Create per-source Snapshot records. Non-fatal on failure.
                 snapshot_ids: list[int] = []
                 try:
                     snapshot_ids = await self._create_snapshots(
@@ -262,6 +305,7 @@ class Orchestrator:
                     )
 
                 # ── 6. Determine trigger status from agent outcomes ─
+                # completed | completed_empty | partial | failed.
                 statuses = set(agent_statuses.values())
 
                 if all(s == "failed" for s in agent_statuses.values()):
@@ -288,6 +332,7 @@ class Orchestrator:
                 )
 
                 # ── 7. Conditional PDF / HTML ───────────────────────
+                # Only when enable_pdf_gen, status not failed/completed_empty, and findings exist.
                 digest_record = None
                 if (
                     run.enable_pdf_gen
@@ -320,6 +365,7 @@ class Orchestrator:
                         await db.commit()
 
                 # ── 8. Conditional email (best-effort, log only) ────
+                # When enable_email_alert, email configured, and digest PDF exists.
                 if (
                     run.enable_email_alert
                     and settings.has_email_configured
@@ -417,6 +463,8 @@ class Orchestrator:
 
     # ── Layer 2: Parallel Agent Execution ──────────────────────────
 
+    # Sentinel returned when an agent times out or raises; provides valid structure
+    # (findings, errors, urls_attempted, urls_succeeded) so consumers need no special-case.
     _EMPTY_AGENT_RESULT: dict = {
         "findings": [],
         "errors": [],

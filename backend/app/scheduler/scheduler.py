@@ -1,5 +1,19 @@
 """
-Scheduler - APScheduler-based pipeline scheduling per run configuration.
+Scheduler - APScheduler-based job management for pipeline runs.
+
+Key components:
+- scheduled_run() - Entry point for scheduled triggers; creates RunTrigger
+  and invokes Orchestrator.execute().
+- sync_scheduler() - Syncs APScheduler jobs with DB Run configurations,
+  builds _user_run_ids mapping for user-scoped status.
+- start_scheduler() / stop_scheduler() - Lifecycle management.
+- get_scheduler_status() - Returns job list, optionally filtered by user_id
+  via _user_run_ids.
+
+CronTrigger configuration:
+- daily: runs at configured hour:minute (UTC) every day.
+- weekly: runs on configured weekdays (e.g. mon,wed,fri) at configured time.
+- monthly: runs on configured dates (e.g. 1,15) at configured time.
 """
 
 import asyncio
@@ -9,13 +23,26 @@ from app.utils.logger import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-# Global scheduler instance
+# Global scheduler instance. None when scheduler is stopped.
 _scheduler: AsyncIOScheduler | None = None
+
+# Maps job_id (e.g. "run_123") -> frequency string ("daily"|"weekly"|"monthly").
+# Used by get_scheduler_status() to include frequency in job details.
 _job_frequencies: dict[str, str] = {}
+
+# Maps user_id -> set of job_ids belonging to that user's runs.
+# Enables user-scoped scheduler status: get_scheduler_status(user_id) returns
+# only jobs for that user's runs.
+_user_run_ids: dict[int, set[str]] = {}
 
 
 async def scheduled_run(run_id: int):
-    """Entry point for the scheduled daily run. Triggers specific run workflow."""
+    """
+    Entry point for scheduled triggers.
+
+    Creates a new RunTrigger (marks previous as non-latest), then invokes
+    Orchestrator.execute() to run the full pipeline for the given run_id.
+    """
     from app.database import async_session
     from app.models.run_trigger import RunTrigger
     from app.scheduler.orchestrator import Orchestrator
@@ -49,14 +76,21 @@ async def scheduled_run(run_id: int):
 
 
 async def sync_scheduler():
-    """Sync the APScheduler jobs with the Runs in the database."""
-    global _scheduler, _job_frequencies
+    """
+    Sync APScheduler jobs with DB Run configurations.
+
+    Removes all existing jobs, rebuilds from enabled Runs. For each Run with
+    crawl_frequency, adds a CronTrigger job. Updates _job_frequencies and
+    _user_run_ids for status reporting.
+    """
+    global _scheduler, _job_frequencies, _user_run_ids
     if not _scheduler:
         return
 
     for job in _scheduler.get_jobs():
         job.remove()
     _job_frequencies.clear()
+    _user_run_ids.clear()
 
     from app.database import async_session
     from app.models.run import Run
@@ -96,6 +130,8 @@ async def sync_scheduler():
 
         periods = cf.get("periods")
 
+        # CronTrigger: daily = every day at time; weekly = weekdays at time;
+        # monthly = calendar dates at time.
         trigger = None
         if freq == "daily":
             trigger = CronTrigger(hour=hour, minute=minute, timezone="UTC")
@@ -119,13 +155,14 @@ async def sync_scheduler():
                 replace_existing=True,
             )
             _job_frequencies[job_id] = freq
+            _user_run_ids.setdefault(run.user_id, set()).add(job_id)
             jobs_added += 1
 
     logger.info("scheduler_synced total_jobs=%d", jobs_added)
 
 
 async def start_scheduler():
-    """Start the APScheduler and sync jobs."""
+    """Start the APScheduler instance and sync jobs from DB. Idempotent if already running."""
     global _scheduler
 
     if _scheduler is not None:
@@ -139,7 +176,7 @@ async def start_scheduler():
 
 
 def stop_scheduler():
-    """Stop the scheduler."""
+    """Stop the scheduler and clear the global instance."""
     global _scheduler
     if _scheduler:
         _scheduler.shutdown()
@@ -147,12 +184,22 @@ def stop_scheduler():
         logger.info("scheduler_stopped")
 
 
-def get_scheduler_status() -> dict:
-    """Get the current scheduler status."""
+def get_scheduler_status(user_id: int | None = None) -> dict:
+    """
+    Get current scheduler status (running flag + job list).
+
+    When user_id is provided, returns only jobs for that user's runs via
+    _user_run_ids. Otherwise returns all jobs.
+    """
     if _scheduler is None:
         return {"running": False, "jobs": []}
 
     jobs = _scheduler.get_jobs()
+
+    if user_id is not None:
+        allowed = _user_run_ids.get(user_id, set())
+        jobs = [j for j in jobs if j.id in allowed]
+
     return {
         "running": _scheduler.running,
         "jobs": [

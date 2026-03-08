@@ -1,3 +1,10 @@
+"""
+User model — application user accounts.
+
+Represents authenticated users who own sources, runs, and intelligence artifacts.
+Uses a UUID (user_id) for external API exposure while keeping an integer primary key.
+"""
+
 import uuid
 from datetime import datetime, timezone
 
@@ -8,6 +15,14 @@ from app.database import Base
 
 
 class User(Base):
+    """
+    User account (table: users).
+
+    No direct ORM relationships defined here; related entities (sources, runs,
+    sessions) reference users via user_id FK. Business rule: user_id is the
+    stable public identifier; id is internal.
+    """
+
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

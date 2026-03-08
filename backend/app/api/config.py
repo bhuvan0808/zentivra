@@ -1,4 +1,12 @@
-"""Config API - View and update orchestrator configuration."""
+"""
+Config API
+==========
+URL prefix: /api/config
+
+View and update orchestrator configuration (LLM settings, crawl params, etc.).
+Supports JSON body updates and file upload (.json, .yaml, .yml).
+All endpoints require authentication via router-level dependency.
+"""
 
 from fastapi import APIRouter, Depends, File, UploadFile
 
@@ -7,7 +15,8 @@ from app.schemas.orchestrator_config import OrchestratorConfigResponse
 from app.services.orchestrator_config_service import OrchestratorConfigService
 
 router = APIRouter(
-    prefix="/config", tags=["Config"],
+    prefix="/config",
+    tags=["Config"],
     dependencies=[Depends(get_current_user)],
 )
 
@@ -16,7 +25,11 @@ router = APIRouter(
 async def get_config(
     service: OrchestratorConfigService = Depends(get_orchestrator_config_service),
 ):
-    """Get the current orchestrator configuration with defaults filled in."""
+    """
+    GET /api/config/
+    Auth: Bearer token required.
+    Response: OrchestratorConfigResponse (with defaults filled in).
+    """
     return await service.get_config()
 
 
@@ -25,7 +38,12 @@ async def update_config(
     data: dict,
     service: OrchestratorConfigService = Depends(get_orchestrator_config_service),
 ):
-    """Update orchestrator configuration from a JSON body."""
+    """
+    PUT /api/config/
+    Auth: Bearer token required.
+    Body: dict (partial config to merge).
+    Response: OrchestratorConfigResponse.
+    """
     return await service.update_config(data)
 
 
@@ -34,7 +52,12 @@ async def upload_config(
     file: UploadFile = File(...),
     service: OrchestratorConfigService = Depends(get_orchestrator_config_service),
 ):
-    """Upload a .json or .yaml/.yml config file."""
+    """
+    POST /api/config/upload
+    Auth: Bearer token required.
+    Body: multipart file (.json, .yaml, .yml).
+    Response: OrchestratorConfigResponse.
+    """
     content = (await file.read()).decode("utf-8")
     filename = file.filename or "config.json"
     ext = filename.rsplit(".", 1)[-1] if "." in filename else "json"

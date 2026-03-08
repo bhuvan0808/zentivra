@@ -1,7 +1,11 @@
 """
-PDF Renderer - Generates PDF digests from HTML templates using WeasyPrint.
+PDF Renderer — generates PDF digests from HTML templates.
 
-Renders the digest data into a professional PDF document with:
+Post-processing component: consumes digest_data from DigestCompiler and produces
+HTML (Jinja2) and PDF outputs. Uses WeasyPrint as primary engine; falls back
+to FPDF when WeasyPrint native libs are unavailable (e.g., Windows).
+
+Renders:
 - Cover page with date and audience
 - Executive summary
 - Deep dive sections per agent/topic
@@ -27,7 +31,13 @@ TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 class PDFRenderer:
     """
-    Render digest data into a PDF document.
+    Renders digest data into HTML and PDF documents.
+
+    Responsibilities:
+    - Load Jinja2 templates from digest/templates/
+    - Prepare digest data (clean text, extract points, add logo URLs)
+    - Render HTML for email/web viewing
+    - Convert to PDF via WeasyPrint, with FPDF fallback on failure
 
     Usage:
         renderer = PDFRenderer()
@@ -35,6 +45,7 @@ class PDFRenderer:
     """
 
     def __init__(self):
+        """Initialize Jinja2 environment with template directory."""
         self._env = Environment(
             loader=FileSystemLoader(str(TEMPLATE_DIR)),
             autoescape=True,
@@ -48,12 +59,15 @@ class PDFRenderer:
         """
         Render digest data to a PDF file.
 
+        Saves both HTML and PDF. If WeasyPrint fails (e.g., missing native libs),
+        falls back to FPDF. If both fail, returns the HTML path instead.
+
         Args:
             digest_data: Dict from DigestCompiler.compile()
             output_dir: Where to save the PDF (default: data/digests/)
 
         Returns:
-            Absolute path to the generated PDF file
+            Absolute path to the generated PDF file (or HTML if PDF generation fails)
         """
         output_dir = output_dir or DIGESTS_DIR
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -82,9 +96,14 @@ class PDFRenderer:
         pdf_generated = False
         try:
             from weasyprint import HTML
+
             HTML(string=html_content).write_pdf(str(pdf_path))
             pdf_generated = True
-            logger.info("pdf_render_complete path=%s size_kb=%d", str(pdf_path), pdf_path.stat().st_size // 1024)
+            logger.info(
+                "pdf_render_complete path=%s size_kb=%d",
+                str(pdf_path),
+                pdf_path.stat().st_size // 1024,
+            )
         except Exception as e:
             # Windows environments frequently miss WeasyPrint native libs.
             logger.warning("pdf_render_weasyprint_failed error=%s", str(e))
@@ -108,16 +127,27 @@ class PDFRenderer:
         return str(pdf_path)
 
     def _render_html(self, digest_data: dict) -> str:
-        """Render the Jinja2 template with digest data."""
+        """
+        Render the Jinja2 digest.html template with prepared digest data.
+
+        Context includes date, executive_summary, sections, total_findings,
+        duplicates_removed, and generated_at timestamp.
+        """
         template = self._env.get_template("digest.html")
 
         digest_date = digest_data.get("date", datetime.now().date())
 
         context = {
             "date": str(digest_date),
-            "date_formatted": digest_date.strftime("%B %d, %Y") if hasattr(digest_date, "strftime") else str(digest_date),
+            "date_formatted": (
+                digest_date.strftime("%B %d, %Y")
+                if hasattr(digest_date, "strftime")
+                else str(digest_date)
+            ),
             "digest_title": digest_data.get("digest_title", ""),
-            "executive_summary": digest_data.get("executive_summary", "No summary available."),
+            "executive_summary": digest_data.get(
+                "executive_summary", "No summary available."
+            ),
             "executive_summary_points": digest_data.get("executive_summary_points", []),
             "sections": digest_data.get("sections", {}),
             "total_findings": digest_data.get("total_findings", 0),
@@ -129,12 +159,21 @@ class PDFRenderer:
         return template.render(**context)
 
     def render_html_only(self, digest_data: dict) -> str:
-        """Render to HTML string only (useful for email body)."""
+        """
+        Render to HTML string only, without writing files.
+
+        Useful for embedding digest content in email body or web views.
+        """
         prepared_digest = self._prepare_digest_data(digest_data)
         return self._render_html(prepared_digest)
 
     def _prepare_digest_data(self, digest_data: dict) -> dict:
-        """Normalize digest payload for both HTML and FPDF renderers."""
+        """
+        Normalize digest payload for both HTML and FPDF renderers.
+
+        Cleans executive summary, extracts bullet points, prepares sections
+        with narrative_points and benchmark_rows.
+        """
         prepared = dict(digest_data or {})
         prepared["executive_summary"] = self._clean_text(
             prepared.get("executive_summary") or "No summary available."
@@ -147,7 +186,12 @@ class PDFRenderer:
         return prepared
 
     def _prepare_sections(self, sections: dict[str, Any]) -> dict[str, dict]:
-        """Add render-friendly fields (logo URL/domain/benchmark rows)."""
+        """
+        Add render-friendly fields to each section.
+
+        Adds narrative_points, prepared findings (with source_domain, logo URL),
+        and benchmark_rows for table rendering.
+        """
         prepared_sections: dict[str, dict] = {}
         for section_name, section_data in (sections or {}).items():
             data = dict(section_data or {})
@@ -167,17 +211,22 @@ class PDFRenderer:
         return prepared_sections
 
     def _prepare_finding(self, finding: dict) -> dict:
-        """Add source/domain/logo fields used by templates and fallback PDF."""
+        """
+        Add source/domain/logo and cleaned text fields for templates.
+
+        Normalizes summary, why_it_matters, what_changed, key_numbers, entities,
+        and scoring fields. Extracts domain from source_url for logo lookup.
+        """
         prepared = dict(finding or {})
         prepared["title"] = self._clean_text(prepared.get("title") or "Untitled")
-        prepared["summary_short"] = self._clean_text(prepared.get("summary_short") or "")
+        prepared["summary_short"] = self._clean_text(
+            prepared.get("summary_short") or ""
+        )
         prepared["summary_long"] = self._clean_text(prepared.get("summary_long") or "")
         prepared["why_it_matters"] = self._clean_text(
             prepared.get("why_it_matters") or ""
         )
-        prepared["what_changed"] = self._clean_text(
-            prepared.get("what_changed") or ""
-        )
+        prepared["what_changed"] = self._clean_text(prepared.get("what_changed") or "")
         prepared["who_it_affects"] = self._clean_text(
             prepared.get("who_it_affects") or ""
         )
@@ -194,9 +243,7 @@ class PDFRenderer:
         # Entities
         raw_entities = prepared.get("entities") or {}
         if isinstance(raw_entities, dict):
-            prepared["entities"] = {
-                k: v for k, v in raw_entities.items() if v
-            }
+            prepared["entities"] = {k: v for k, v in raw_entities.items() if v}
         else:
             prepared["entities"] = {}
 
@@ -211,9 +258,13 @@ class PDFRenderer:
         prepared["relevance_score"] = float(prepared.get("relevance_score") or 0)
         prepared["novelty_score"] = float(prepared.get("novelty_score") or 0)
         prepared["credibility_score"] = float(prepared.get("credibility_score") or 0)
-        prepared["actionability_score"] = float(prepared.get("actionability_score") or 0)
+        prepared["actionability_score"] = float(
+            prepared.get("actionability_score") or 0
+        )
 
-        source_url = self._strip_wrapping_quotes(str(prepared.get("source_url") or "").strip())
+        source_url = self._strip_wrapping_quotes(
+            str(prepared.get("source_url") or "").strip()
+        )
         prepared["source_url"] = source_url
         source_domain = self._extract_domain(source_url)
         prepared["source_domain"] = source_domain
@@ -278,7 +329,11 @@ class PDFRenderer:
         return self._strip_wrapping_quotes(cleaned.strip())
 
     def _extract_points(self, value: object, max_points: int = 8) -> list[str]:
-        """Convert free-form text into concise point-by-point lines."""
+        """
+        Convert free-form text into concise point-by-point lines.
+
+        Splits on newlines or sentences; deduplicates by lowercase key.
+        """
         text = self._clean_text(value)
         if not text:
             return []
@@ -305,7 +360,7 @@ class PDFRenderer:
         return deduped
 
     def _extract_domain(self, url: str) -> str:
-        """Extract normalized domain from URL."""
+        """Extract normalized domain from URL (strips www. prefix)."""
         if not url:
             return ""
         try:
@@ -318,7 +373,7 @@ class PDFRenderer:
             return ""
 
     def _logo_url_for_domain(self, domain: str) -> str:
-        """Public favicon endpoint for source logos in HTML render."""
+        """Return Google favicon URL for source logos in HTML render."""
         return f"https://www.google.com/s2/favicons?domain={quote(domain)}&sz=64"
 
     def _safe_filename(self, value: str) -> str:
@@ -327,8 +382,14 @@ class PDFRenderer:
         safe = "".join(chars).strip("._")
         return safe or "source"
 
-    def _download_logo_for_domain(self, domain: str, assets_dir: Path) -> Optional[Path]:
-        """Download and cache favicon/logo for a source domain."""
+    def _download_logo_for_domain(
+        self, domain: str, assets_dir: Path
+    ) -> Optional[Path]:
+        """
+        Download and cache favicon/logo for a source domain.
+
+        Returns local file path if successful; None on failure or empty domain.
+        """
         if not domain:
             return None
 
@@ -350,7 +411,13 @@ class PDFRenderer:
             return None
 
     def _render_with_fpdf(self, digest_data: dict, pdf_path: Path) -> None:
-        """Fallback PDF generation with professional layout and benchmark table."""
+        """
+        Fallback PDF generation using FPDF when WeasyPrint fails.
+
+        Produces cover page, executive summary, section pages with findings,
+        benchmark table, and detailed analysis. Handles text wrapping for
+        page width and pagination.
+        """
         from fpdf import FPDF
 
         def safe_text(value: object) -> str:
@@ -476,7 +543,10 @@ class PDFRenderer:
                 impact = int(float(row.get("impact_score") or 0) * 100)
                 row_values = [
                     truncate(row.get("title", "Untitled"), 50),
-                    truncate(row.get("publisher") or row.get("source_domain") or "Unknown", 22),
+                    truncate(
+                        row.get("publisher") or row.get("source_domain") or "Unknown",
+                        22,
+                    ),
                     f"{confidence}%",
                     f"{impact}%",
                 ]
@@ -533,7 +603,9 @@ class PDFRenderer:
 
             pdf.set_text_color(0, 0, 0)
             pdf.set_font("Helvetica", "B", 13)
-            count = int(section_data.get("count", len(section_data.get("findings", []))))
+            count = int(
+                section_data.get("count", len(section_data.get("findings", [])))
+            )
             write_wrapped(f"{section_name} ({count} findings)", 6)
             pdf.set_draw_color(140, 140, 140)
             pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
@@ -566,22 +638,17 @@ class PDFRenderer:
                 publisher = finding.get("publisher") or domain or "Unknown source"
                 category = finding.get("category", "other")
                 meta_line = f"Source: {publisher}"
-                score_line = (
-                    f"Category: {category} | Confidence {confidence}% | Impact {impact}%"
-                )
+                score_line = f"Category: {category} | Confidence {confidence}% | Impact {impact}%"
                 pdf.set_font("Helvetica", size=8)
                 write_wrapped(f"- {meta_line}", 4.2)
                 write_wrapped(f"- {score_line}", 4.2)
 
                 # Summary
-                summary_points = (
-                    finding.get("summary_points")
-                    or self._extract_points(
-                        finding.get("summary_short")
-                        or finding.get("summary_long")
-                        or "No summary available.",
-                        max_points=4,
-                    )
+                summary_points = finding.get("summary_points") or self._extract_points(
+                    finding.get("summary_short")
+                    or finding.get("summary_long")
+                    or "No summary available.",
+                    max_points=4,
                 )
                 pdf.set_font("Helvetica", "B", 8)
                 write_wrapped("Summary:", 4.2)
@@ -608,9 +675,8 @@ class PDFRenderer:
                     write_wrapped(truncate(what_changed, 400), 4.2)
 
                 # Why It Matters
-                why_points = (
-                    finding.get("why_points")
-                    or self._extract_points(finding.get("why_it_matters") or "", max_points=3)
+                why_points = finding.get("why_points") or self._extract_points(
+                    finding.get("why_it_matters") or "", max_points=3
                 )
                 if why_points:
                     pdf.set_font("Helvetica", "B", 8)

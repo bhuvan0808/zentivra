@@ -1,4 +1,10 @@
-"""Schemas for ad-hoc workflows (e.g., disruptive article reports)."""
+"""
+Pydantic schemas for ad-hoc workflow triggers.
+
+Defines request/response schemas for one-off workflows:
+- Disruptive article report: DisruptiveArticleRequest -> DisruptiveArticleResponse
+  (POST /workflows/disruptive-article or similar endpoint)
+"""
 
 from typing import Optional
 
@@ -8,7 +14,11 @@ from app.models.source import AgentType
 
 
 class DisruptiveArticleRequest(BaseModel):
-    """Request payload for one-off disruptive article analysis."""
+    """
+    Request body for triggering a disruptive article analysis workflow.
+
+    Submits a URL for analysis; optionally restricts agent types and sets a custom title.
+    """
 
     url: str = Field(..., min_length=5)
     recipient_email: str = Field(..., min_length=5)
@@ -24,7 +34,11 @@ class DisruptiveArticleRequest(BaseModel):
 
 
 class DisruptiveArticleResponse(BaseModel):
-    """Response for disruptive article report generation."""
+    """
+    Response after triggering a disruptive article report workflow.
+
+    Includes report_id, findings count, email status, PDF paths, and agents used.
+    """
 
     report_id: str
     findings_count: int

@@ -1,4 +1,20 @@
-"""Main API Router - Aggregates all sub-routers."""
+"""
+Central API Router
+==================
+Mounts all API sub-routers under the /api prefix.
+
+URL prefix: /api
+
+Sub-routers mounted:
+- auth: /api/auth (signup, login, logout, me)
+- sources: /api/sources (CRUD for data sources)
+- runs: /api/runs (CRUD for run configs, trigger endpoint)
+- run_triggers: /api/run-triggers (trigger details, findings, snapshots)
+- findings: /api/findings (list, stats, get by ID)
+- digests: /api/digests (list, latest, HTML/PDF download)
+- execution_logs: /api/run-triggers (NDJSON log list, preview, download)
+- dashboard: /api/dashboard (KPI, charts, triggers, sources)
+"""
 
 from fastapi import APIRouter
 

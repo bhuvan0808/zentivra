@@ -1,8 +1,9 @@
 """
 Agent #4 - HuggingFace Benchmark Tracker.
 
-Tracks HuggingFace leaderboards, trending models, evaluation datasets,
-and new SOTA claims.
+Domain focus: Monitors HuggingFace benchmark leaderboards.
+Produces findings from leaderboards, trending models, evaluation datasets,
+and new SOTA (state-of-the-art) claims. Boosts confidence for SOTA patterns.
 """
 
 import re
@@ -10,6 +11,7 @@ import re
 from app.agents.base_agent import BaseAgent
 from app.models.source import Source
 
+# Regex patterns for SOTA / record-breaking claims
 SOTA_PATTERNS = [
     r"state[\s-]of[\s-]the[\s-]art",
     r"\bSOTA\b",
@@ -24,6 +26,14 @@ SOTA_PATTERNS = [
 
 
 class HFBenchmarkTracker(BaseAgent):
+    """
+    Monitors HuggingFace benchmark leaderboards.
+
+    Specialization vs BaseAgent: Custom discover_urls() - for HF sources with
+    models+trending, adds HF models API URL (sort=trending). Post-processes to
+    set category "benchmarks" and boost confidence when SOTA patterns match.
+    Content type: "benchmark leaderboard / model evaluation results".
+    """
 
     @property
     def agent_type(self) -> str:
@@ -42,8 +52,12 @@ class HFBenchmarkTracker(BaseAgent):
         return urls[:5]
 
     async def post_process_finding(
-        self, finding: dict, extraction, source: Source,
+        self,
+        finding: dict,
+        extraction,
+        source: Source,
     ) -> dict:
+        """Set category to benchmarks; boost confidence when SOTA patterns match."""
         finding["category"] = "benchmarks"
 
         text = f"{finding.get('summary', '')} {finding.get('content', '')}".lower()

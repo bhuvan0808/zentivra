@@ -1,4 +1,16 @@
-# Database Models Package
+"""
+Database models package for the Zentivra intelligence feed application.
+
+This package exports all SQLAlchemy ORM models used across the application.
+Importing from here ensures a single source of truth for model definitions
+and avoids circular import issues. Models are grouped by domain:
+
+- Identity: User, UserSession
+- Sources & runs: Source, Run, RunTrigger
+- Intelligence artifacts: Finding, Snapshot, Digest, DigestSnapshot
+- System: OrchestratorConfig
+"""
+
 from app.models.user import User
 from app.models.user_session import UserSession
 from app.models.source import Source

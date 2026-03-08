@@ -1,4 +1,11 @@
-"""Business logic for authentication (signup, login, logout, token validation)."""
+"""
+Authentication service with Valkey-first session caching.
+
+This module encapsulates all auth business logic: signup, login, logout, and token
+validation. Uses Valkey as the primary session store for fast token validation
+(cache hit avoids DB query). Sessions are also persisted in the database for
+audit and cross-service consistency.
+"""
 
 from datetime import datetime, timedelta, timezone
 
@@ -15,10 +22,19 @@ from app.schemas.auth import AuthResponse
 
 
 def _utcnow() -> datetime:
+    """Return current UTC datetime for session expiry and deactivation."""
     return datetime.now(timezone.utc)
 
 
 class AuthService:
+    """
+    Orchestrates user and session repositories for authentication.
+
+    Applies business rules (e.g., duplicate username/email, disabled accounts),
+    raises HTTPExceptions for invalid credentials or conflicts. Creates and
+    invalidates sessions in both Valkey and the database.
+    """
+
     def __init__(self, repo: UserRepository, session_repo: UserSessionRepository):
         self.repo = repo
         self.session_repo = session_repo
@@ -26,6 +42,15 @@ class AuthService:
     async def signup(
         self, username: str, email: str, password: str, display_name: str
     ) -> AuthResponse:
+        """
+        Register a new user and create an authenticated session.
+
+        Flow: validate uniqueness -> hash password -> create user -> create session
+        -> store session in Valkey. Returns auth token and user info.
+
+        Raises:
+            HTTPException 409: Username or email already taken.
+        """
         existing_username = await self.repo.get_by_username(username)
         if existing_username:
             raise HTTPException(status_code=409, detail="Username already taken")
@@ -54,6 +79,16 @@ class AuthService:
         )
 
     async def login(self, username_or_email: str, password: str) -> AuthResponse:
+        """
+        Authenticate user and create a new session.
+
+        Validates credentials, checks account is enabled, then creates session
+        and stores in Valkey. Returns auth token and user info.
+
+        Raises:
+            HTTPException 401: Invalid credentials.
+            HTTPException 403: Account is disabled.
+        """
         user = await self.repo.get_by_username_or_email(username_or_email)
         if not user:
             raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -76,6 +111,12 @@ class AuthService:
         )
 
     async def logout(self, auth_token: str) -> None:
+        """
+        Invalidate the session for the given token.
+
+        Side effects: deletes from Valkey immediately; deactivates session row
+        in DB if it exists. Idempotent for unknown tokens.
+        """
         await valkey_client.delete_session(auth_token)
 
         session = await self.session_repo.get_by_token(auth_token)
@@ -83,6 +124,17 @@ class AuthService:
             await self.session_repo.deactivate(session, _utcnow())
 
     async def validate_token(self, auth_token: str) -> User:
+        """
+        Validate auth token and return the associated User.
+
+        Fast path: Valkey cache hit -> fetch user by ID -> no DB session query.
+        Slow path: cache miss -> lookup session in DB -> check expiry -> fetch user.
+        Side effects: deactivates expired sessions and removes them from Valkey.
+
+        Raises:
+            HTTPException 401: Invalid/expired token or session.
+            HTTPException 403: Account is disabled.
+        """
         cached = await valkey_client.get_session(auth_token)
         if cached:
             user = await self.repo.get_by_id(cached["id"])
@@ -119,6 +171,12 @@ class AuthService:
     async def _create_session(
         self, user_pk: int, user_uuid: str
     ) -> tuple[str, datetime]:
+        """
+        Create a new session in DB and Valkey.
+
+        Generates token, persists UserSession row, commits DB, then stores
+        session in Valkey with TTL for fast validation. Returns (token, expires_at).
+        """
         now = _utcnow()
         ttl_hours = settings.auth_token_ttl_hours
         token = generate_auth_token()

@@ -1,8 +1,9 @@
-"""
-Summarizer - LLM-powered content summarization and structured extraction.
+"""Summarizer — LLM-powered content summarization and finding generation.
+
+Fourth stage of the pipeline: fetch -> extract -> preprocess -> summarize -> dedup -> rank.
 
 Supports Groq (fastest), OpenRouter, Gemini, OpenAI, and Anthropic as LLM providers.
-Extracts structured findings from raw text with guardrails.
+Extracts structured findings from raw text with guardrails (confidence, citations).
 """
 
 import json
@@ -16,10 +17,28 @@ from app.config import settings
 
 @dataclass
 class SummaryResult:
-    """Structured summary produced by the LLM."""
+    """Structured summary produced by the LLM.
+
+    Attributes:
+        title: Concise title for the finding.
+        summary_short: 2-3 sentence summary.
+        summary_long: Detailed summary.
+        why_it_matters: Why this matters to AI practitioners.
+        what_changed: What specifically changed.
+        who_it_affects: Target audience.
+        key_numbers: List of metrics/numbers mentioned.
+        confidence: 0.0-1.0 confidence score.
+        category: One of models, apis, pricing, benchmarks, safety, tooling, research, other.
+        tags: Categorization tags.
+        entities: Dict with companies, models, datasets.
+        evidence: Citations, source URLs.
+        success: True if summarization succeeded.
+        error: Error message if success=False.
+    """
+
     title: str = ""
     summary_short: str = ""  # 2-3 sentence summary
-    summary_long: str = ""   # Detailed summary
+    summary_long: str = ""  # Detailed summary
     why_it_matters: str = ""
     what_changed: str = ""
     who_it_affects: str = ""
@@ -108,12 +127,13 @@ class Summarizer:
     """
 
     def __init__(self, provider: str | None = None, model: str | None = None):
+        """Initialize with provider (groq, openrouter, gemini, openai, anthropic) and optional model override."""
         self._provider = provider or settings.active_llm_provider
         self._model_override = model
         logger.info("summarizer_init provider=%s", self._provider)
 
     def _resolve_model(self) -> str:
-        """Return the model name, preferring an explicit override."""
+        """Return the model name for the active provider, preferring explicit override."""
         if self._model_override:
             return self._model_override
         model_map = {
@@ -185,10 +205,10 @@ class Summarizer:
         category: str,
         source: str,
     ) -> dict:
-        """
-        Score a finding on relevance, novelty, credibility, actionability.
+        """Score a finding on relevance, novelty, credibility, actionability.
 
-        Returns dict with scores and impact score.
+        Returns dict with relevance, novelty, credibility, actionability (1-10),
+        impact_score (0-1), and reasoning. On error, returns default scores (5 each).
         """
         prompt = RANK_PROMPT.format(
             title=title,
@@ -271,14 +291,16 @@ Write the narrative directly (no preamble, no markdown headers). Keep it concise
         self,
         findings: list[dict],
     ) -> str:
-        """Generate a short, descriptive title for the digest based on top findings."""
+        """Generate a short, descriptive title for the digest based on top findings.
+
+        Uses LLM; falls back to first finding title or 'AI Radar Digest' on error.
+        """
         if not findings:
             return "AI Radar Digest"
 
         top = findings[:5]
         bullets = "\n".join(
-            f"- {f.get('title', '')} ({f.get('category', 'other')})"
-            for f in top
+            f"- {f.get('title', '')} ({f.get('category', 'other')})" for f in top
         )
 
         prompt = f"""Given these top AI findings from today, generate a short digest title (max 8 words).
@@ -290,7 +312,7 @@ FINDINGS:
 Return ONLY the title, nothing else."""
 
         try:
-            title = (await self._call_llm(prompt)).strip().strip('"\'.')
+            title = (await self._call_llm(prompt)).strip().strip("\"'.")
             if title and len(title) <= 100:
                 return title
         except Exception as e:
@@ -307,7 +329,10 @@ Return ONLY the title, nothing else."""
         section_narratives: dict[str, str],
         total_findings: int,
     ) -> str:
-        """Generate a one-page executive summary from section narratives."""
+        """Generate a one-page executive summary from section narratives.
+
+        Returns error message string on LLM failure.
+        """
         sections_text = "\n\n".join(
             f"**{section}**:\n{narrative}"
             for section, narrative in section_narratives.items()
@@ -332,7 +357,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
     # ── LLM Provider Implementations ──────────────────────────────────────
 
     async def _call_llm(self, prompt: str) -> str:
-        """Route to the configured LLM provider."""
+        """Route to the configured LLM provider. Raises RuntimeError if none configured."""
         if self._provider == "groq":
             return await self._call_groq(prompt)
         elif self._provider == "openrouter":
@@ -350,7 +375,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
             )
 
     async def _call_gemini(self, prompt: str) -> str:
-        """Call Google Gemini API with retry/backoff for rate limits."""
+        """Call Google Gemini API with retry/backoff for rate limits and timeouts."""
         import asyncio
         import re
         from google import genai
@@ -387,7 +412,9 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
             except Exception as e:
                 error_str = str(e)
                 # Check for rate-limit / retryDelay
-                delay_match = re.search(r"retryDelay['\"]?\s*[:=]\s*['\"]?(\d+)", error_str)
+                delay_match = re.search(
+                    r"retryDelay['\"]?\s*[:=]\s*['\"]?(\d+)", error_str
+                )
                 if delay_match and attempt < max_retries - 1:
                     delay = int(delay_match.group(1))
                     logger.warning(
@@ -398,13 +425,15 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
                     await asyncio.sleep(delay + 2)  # Wait the suggested delay + buffer
                 elif attempt < max_retries - 1:
                     wait = 2 ** (attempt + 1)
-                    logger.warning("gemini_error_retry error=%s wait=%d", error_str[:100], wait)
+                    logger.warning(
+                        "gemini_error_retry error=%s wait=%d", error_str[:100], wait
+                    )
                     await asyncio.sleep(wait)
                 else:
                     raise
 
     async def _call_openai(self, prompt: str) -> str:
-        """Call OpenAI API."""
+        """Call OpenAI API. Raises on HTTP error."""
         import httpx
 
         async with httpx.AsyncClient() as client:
@@ -427,7 +456,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
             return data["choices"][0]["message"]["content"]
 
     async def _call_anthropic(self, prompt: str) -> str:
-        """Call Anthropic Claude API."""
+        """Call Anthropic Claude API. Raises on HTTP error."""
         import httpx
 
         async with httpx.AsyncClient() as client:
@@ -450,7 +479,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
             return data["content"][0]["text"]
 
     async def _call_groq(self, prompt: str) -> str:
-        """Call Groq API (fast inference)."""
+        """Call Groq API (fast inference). Raises on HTTP error."""
         import httpx
 
         async with httpx.AsyncClient() as client:
@@ -473,7 +502,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
             return data["choices"][0]["message"]["content"]
 
     async def _call_openrouter(self, prompt: str) -> str:
-        """Call OpenRouter API (multi-model gateway)."""
+        """Call OpenRouter API (multi-model gateway). Raises on HTTP error."""
         import httpx
 
         async with httpx.AsyncClient() as client:
@@ -500,7 +529,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
     # ── Response Parsing ──────────────────────────────────────────────────
 
     def _parse_summary_response(self, response: str) -> SummaryResult:
-        """Parse JSON response from LLM into SummaryResult."""
+        """Parse JSON response from LLM into SummaryResult. Returns empty fields on parse failure."""
         data = self._parse_json_response(response)
 
         return SummaryResult(
@@ -518,7 +547,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
         )
 
     def _parse_json_response(self, response: str) -> dict:
-        """Parse JSON from LLM response, handling markdown code blocks."""
+        """Parse JSON from LLM response, handling markdown code blocks. Returns {} on failure."""
         response = response.strip()
 
         # Remove markdown code block wrappers if present
@@ -533,6 +562,7 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
         except json.JSONDecodeError:
             # Try to find JSON object in the response
             import re
+
             match = re.search(r"\{.*\}", response, re.DOTALL)
             if match:
                 try:

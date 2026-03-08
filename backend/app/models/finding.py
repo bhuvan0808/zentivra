@@ -1,7 +1,8 @@
 """
-Finding model - A single intelligence finding produced by an agent.
+Finding model — a single intelligence finding extracted by an agent.
 
-Matches the actual DB schema: findings table.
+Each finding is a structured piece of intelligence (e.g. competitor update,
+benchmark result) pulled from a source URL during a run trigger.
 """
 
 import uuid
@@ -14,6 +15,14 @@ from app.database import Base
 
 
 class Finding(Base):
+    """
+    Intelligence finding (table: findings).
+
+    Relationships: run_trigger (lazy=selectin) — the execution that produced this.
+    Business rules: src_url is the source page; confidence in [0,1]; category
+    for classification (e.g. "announcement", "benchmark").
+    """
+
     __tablename__ = "findings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -47,7 +56,6 @@ class Finding(Base):
     )
     updated_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
-    # Relationships
     run_trigger = relationship("RunTrigger", back_populates="findings", lazy="selectin")
 
     def __repr__(self) -> str:
@@ -55,6 +63,7 @@ class Finding(Base):
 
     @property
     def run_trigger_uuid(self) -> str | None:
+        """Parent run_trigger's UUID (run_trigger_id) when relationship is loaded."""
         return (
             self.run_trigger.run_trigger_id
             if getattr(self, "run_trigger", None)

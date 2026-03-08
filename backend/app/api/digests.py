@@ -1,4 +1,12 @@
-"""Digests API - View and download intelligence digests."""
+"""
+Digests API
+===========
+URL prefix: /api/digests
+
+View and download intelligence digests (HTML/PDF reports). Digests are
+generated per trigger and aggregate findings across sources.
+All endpoints require authentication.
+"""
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
@@ -16,7 +24,12 @@ async def list_digests(
     service: DigestService = Depends(get_digest_service),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """List all digests, most recent first."""
+    """
+    GET /api/digests/
+    Auth: Bearer token required.
+    Query: limit (1-100, default 30).
+    Response: list[DigestResponse].
+    """
     return await service.list_digests(user.id, limit=limit)
 
 
@@ -25,7 +38,11 @@ async def get_latest_digest(
     service: DigestService = Depends(get_digest_service),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Get the most recent digest."""
+    """
+    GET /api/digests/latest
+    Auth: Bearer token required.
+    Response: DigestResponse (most recent digest).
+    """
     return await service.get_latest(user.id)
 
 
@@ -35,7 +52,11 @@ async def get_digest(
     service: DigestService = Depends(get_digest_service),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Get a digest by its UUID."""
+    """
+    GET /api/digests/{digest_id}
+    Auth: Bearer token required.
+    Response: DigestResponse.
+    """
     return await service.get_by_uuid(digest_id, user.id)
 
 
@@ -45,7 +66,11 @@ async def serve_digest_html(
     service: DigestService = Depends(get_digest_service),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Serve the HTML for a digest."""
+    """
+    GET /api/digests/{digest_id}/html
+    Auth: Bearer token required.
+    Response: FileResponse (text/html).
+    """
     html_path = await service.get_html_path(digest_id, user.id)
     return FileResponse(
         path=str(html_path),
@@ -60,7 +85,11 @@ async def download_digest_pdf(
     service: DigestService = Depends(get_digest_service),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Download the PDF for a digest."""
+    """
+    GET /api/digests/{digest_id}/pdf
+    Auth: Bearer token required.
+    Response: FileResponse (application/pdf).
+    """
     pdf_path = await service.get_pdf_path(digest_id, user.id)
     return FileResponse(
         path=str(pdf_path),
