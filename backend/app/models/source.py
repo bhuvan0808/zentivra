@@ -1,7 +1,8 @@
 """
-Source model - Configurable data sources per agent.
+Source model — configurable intelligence feed sources per agent type.
 
-Matches the actual DB schema: sources table.
+Each source is a URL (e.g. competitor blog, research paper site) that agents
+crawl to extract findings. agent_type determines which agent processes the source.
 """
 
 import uuid
@@ -15,6 +16,8 @@ from app.database import Base
 
 
 class AgentType(str, PyEnum):
+    """Agent type for routing sources to the appropriate crawler/analyzer."""
+
     COMPETITOR = "competitor"
     MODEL_PROVIDER = "model_provider"
     RESEARCH = "research"
@@ -22,6 +25,14 @@ class AgentType(str, PyEnum):
 
 
 class Source(Base):
+    """
+    Intelligence feed source (table: sources).
+
+    Relationships: snapshots (lazy=selectin) — per-source execution summaries.
+    Business rules: source_name is internal key; display_name is user-facing.
+    agent_type must match an AgentType value; url is the crawl target.
+    """
+
     __tablename__ = "sources"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -51,7 +62,7 @@ class Source(Base):
     )
     updated_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
-    # Relationships
+    # Relationships: snapshots — per-trigger execution summaries for this source
     snapshots = relationship("Snapshot", back_populates="source", lazy="selectin")
 
     def __repr__(self) -> str:

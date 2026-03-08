@@ -1,7 +1,9 @@
 """
 Zentivra Database Module.
 
-Async SQLAlchemy engine and session factory for PostgreSQL.
+Async SQLAlchemy engine and session factory for PostgreSQL. Handles SSL configuration
+for cloud databases (e.g. Render) and provides a dependency-injectable session with
+automatic commit/rollback/close lifecycle.
 """
 
 import ssl
@@ -14,6 +16,7 @@ from app.config import settings, BASE_DIR
 
 connect_args: dict = {}
 
+# SSL: if CA cert path is set, load it for TLS verification; otherwise require SSL
 _cert_path_raw = settings.database_ca_cert_path
 if _cert_path_raw:
     _cert_path = Path(_cert_path_raw)
@@ -29,6 +32,7 @@ if _cert_path_raw:
     else:
         connect_args["ssl"] = "require"
 else:
+    # No custom CA: use generic "require" so asyncpg negotiates TLS
     connect_args["ssl"] = "require"
 
 engine = create_async_engine(
@@ -53,7 +57,12 @@ class Base(DeclarativeBase):
 
 
 async def get_db() -> AsyncSession:
-    """FastAPI dependency: yields a database session."""
+    """
+    FastAPI dependency: yields a database session with automatic lifecycle.
+
+    Session lifecycle: commit on success, rollback on exception, always close.
+    Each request gets its own session; the session is scoped to the request.
+    """
     async with async_session() as session:
         try:
             yield session

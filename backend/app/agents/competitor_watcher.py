@@ -1,13 +1,16 @@
 """
 Agent #1 - Competitor Release Watcher.
 
-Tracks competitor sites (blogs, changelogs, docs release notes)
-and summarizes product/platform releases.
+Domain focus: Monitors competitor companies for strategic intelligence.
+Produces findings from competitor blogs, changelogs, docs release notes,
+and product/platform announcements. Boosts confidence for high-impact
+keywords (GA, pricing, API, security, deprecation, etc.).
 """
 
 from app.agents.base_agent import BaseAgent
 from app.models.source import Source
 
+# Keywords that indicate high-impact competitor announcements
 HIGH_IMPACT_KEYWORDS = [
     "generally available",
     "GA",
@@ -25,6 +28,14 @@ HIGH_IMPACT_KEYWORDS = [
 
 
 class CompetitorWatcher(BaseAgent):
+    """
+    Monitors competitor companies for strategic intelligence.
+
+    Specialization vs BaseAgent: Uses source.url directly (no custom URL
+    discovery). Post-processes findings to boost confidence when high-impact
+    keywords (GA, pricing, API, security, deprecation, etc.) are present.
+    Content type: "competitor release note / blog post".
+    """
 
     @property
     def agent_type(self) -> str:
@@ -37,8 +48,12 @@ class CompetitorWatcher(BaseAgent):
         return [source.url]
 
     async def post_process_finding(
-        self, finding: dict, extraction, source: Source,
+        self,
+        finding: dict,
+        extraction,
+        source: Source,
     ) -> dict:
+        """Boost confidence when high-impact competitor keywords are present."""
         text = f"{finding.get('summary', '')} {finding.get('content', '')}".lower()
 
         impact_matches = [kw for kw in HIGH_IMPACT_KEYWORDS if kw.lower() in text]

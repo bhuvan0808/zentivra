@@ -1,7 +1,8 @@
 """
-Snapshot model - Raw content captured from a source URL.
+Snapshot model — per-source execution summary within a trigger.
 
-Matches the actual DB schema: snapshots table.
+One snapshot per (run_trigger, source) pair. Captures raw crawl result, count of
+findings extracted, and status. Linked to digests via DigestSnapshot.
 """
 
 import uuid
@@ -14,6 +15,15 @@ from app.database import Base
 
 
 class Snapshot(Base):
+    """
+    Per-source execution summary (table: snapshots).
+
+    Relationships: run_trigger, source (lazy=selectin); digest_links (lazy=selectin)
+    for digests that include this snapshot. Business rules: one snapshot per
+    source per trigger; total_findings = count of findings from this source;
+    status = pending|completed|failed.
+    """
+
     __tablename__ = "snapshots"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -45,7 +55,6 @@ class Snapshot(Base):
     )
     updated_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
-    # Relationships
     run_trigger = relationship(
         "RunTrigger", back_populates="snapshots", lazy="selectin"
     )
@@ -59,6 +68,7 @@ class Snapshot(Base):
 
     @property
     def run_trigger_uuid(self) -> str | None:
+        """Parent run_trigger's UUID (run_trigger_id) when relationship is loaded."""
         return (
             self.run_trigger.run_trigger_id
             if getattr(self, "run_trigger", None)

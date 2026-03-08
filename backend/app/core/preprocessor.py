@@ -1,7 +1,9 @@
-"""Content Preprocessor Layer.
+"""Preprocessor layer — text normalization and cleaning before AI extraction.
+
+Third stage of the pipeline: fetch -> extract -> preprocess -> summarize -> dedup -> rank.
 
 Runs after HTML extraction and before AI summarization to normalize text,
-remove boilerplate, and produce cleaner input for LLM processing.
+remove boilerplate, strip tracking params from URLs, and truncate to max length.
 """
 
 import re
@@ -9,8 +11,10 @@ import unicodedata
 from html import unescape
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
+# Max characters to keep after preprocessing (truncation at word boundary)
 MAX_CONTENT_LENGTH = 25_000
 
+# Regex patterns for boilerplate lines to remove (cookies, newsletter, etc.)
 BOILERPLATE_PATTERNS = [
     re.compile(r"(?i)accept\s+(all\s+)?cookies?"),
     re.compile(r"(?i)we\s+use\s+cookies"),
@@ -29,16 +33,38 @@ BOILERPLATE_PATTERNS = [
     re.compile(r"(?i)please\s+enable\s+javascript"),
 ]
 
+# Query parameters to strip from URLs embedded in text
 TRACKING_PARAMS = {
-    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
-    "ref", "fbclid", "gclid", "mc_cid", "mc_eid", "spm",
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "ref",
+    "fbclid",
+    "gclid",
+    "mc_cid",
+    "mc_eid",
+    "spm",
 }
 
+# Minimum line length; shorter lines (non-numeric) are removed as UI artifacts
 MIN_LINE_LENGTH = 4
 
 
 def preprocess(text: str, *, max_length: int = MAX_CONTENT_LENGTH) -> str:
-    """Full preprocessing pipeline: normalize -> clean -> truncate."""
+    """Full preprocessing pipeline: normalize -> clean -> truncate.
+
+    Steps: unicode normalization, HTML entity decode, URL param stripping,
+    boilerplate removal, short-line removal, whitespace collapse, truncation.
+
+    Args:
+        text: Raw extracted text.
+        max_length: Max output length; truncates at word boundary.
+
+    Returns:
+        Cleaned text string. Empty string if input is empty.
+    """
     if not text:
         return ""
 
@@ -57,22 +83,26 @@ def preprocess(text: str, *, max_length: int = MAX_CONTENT_LENGTH) -> str:
 
 
 def _normalize_unicode(text: str) -> str:
+    """Normalize unicode to NFKC (compatibility decomposition + canonical composition)."""
     return unicodedata.normalize("NFKC", text)
 
 
 def _strip_html_entities(text: str) -> str:
+    """Decode HTML entities (e.g., &amp;, &#39;)."""
     return unescape(text)
 
 
 def _clean_urls_in_text(text: str) -> str:
-    """Strip tracking query parameters from URLs embedded in text."""
+    """Strip tracking query parameters (utm_*, fbclid, gclid, etc.) from URLs in text."""
 
     def _clean_url(match: re.Match) -> str:
         url = match.group(0)
         try:
             parsed = urlparse(url)
             params = parse_qs(parsed.query, keep_blank_values=True)
-            cleaned = {k: v for k, v in params.items() if k.lower() not in TRACKING_PARAMS}
+            cleaned = {
+                k: v for k, v in params.items() if k.lower() not in TRACKING_PARAMS
+            }
             new_query = urlencode(cleaned, doseq=True) if cleaned else ""
             return urlunparse(parsed._replace(query=new_query))
         except Exception:
@@ -82,6 +112,7 @@ def _clean_urls_in_text(text: str) -> str:
 
 
 def _remove_boilerplate_lines(text: str) -> str:
+    """Remove lines matching BOILERPLATE_PATTERNS (cookies, newsletter, etc.)."""
     lines = text.split("\n")
     cleaned = []
     for line in lines:
@@ -108,6 +139,7 @@ def _remove_short_lines(text: str) -> str:
 
 
 def _collapse_whitespace(text: str) -> str:
+    """Collapse runs of spaces/tabs to single space; 3+ newlines to 2."""
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text

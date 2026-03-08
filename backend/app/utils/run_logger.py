@@ -35,6 +35,7 @@ class RunLogger:
         self._orchestrator = self._make_agent_logger("orchestrator")
 
     def _make_agent_logger(self, agent_name: str) -> "_AgentLogger":
+        """Create a new _AgentLogger for the given agent, ensuring its directory exists."""
         agent_dir = self.log_dir / agent_name
         agent_dir.mkdir(parents=True, exist_ok=True)
         file_path = agent_dir / "logs.ndjson"
@@ -45,7 +46,7 @@ class RunLogger:
         )
 
     def for_agent(self, agent_name: str) -> "_AgentLogger":
-        """Return (or create) the sub-logger for the given agent."""
+        """Return (or create) the sub-logger for the given agent. Caches per agent."""
         if agent_name not in self._agents:
             self._agents[agent_name] = self._make_agent_logger(agent_name)
         return self._agents[agent_name]
@@ -65,13 +66,20 @@ class RunLogger:
         self._orchestrator.log(level, event, **kw)
 
     def close(self):
+        """Close orchestrator and all agent loggers, flushing and releasing file handles."""
         self._orchestrator.close()
         for al in self._agents.values():
             al.close()
 
 
 class _AgentLogger:
-    """Writes NDJSON for one agent within a trigger execution."""
+    """
+    Writes NDJSON for one agent within a trigger execution.
+
+    Each entry is a JSON line with ts, trigger_id, level, agent, step, event, plus
+    arbitrary extra fields. Entries are also mirrored to the terminal via the
+    standard logger.
+    """
 
     def __init__(self, trigger_id: str, agent_name: str, file_path: Path):
         self.trigger_id = trigger_id
@@ -87,6 +95,7 @@ class _AgentLogger:
         step: Optional[str] = None,
         **data: Any,
     ):
+        """Append a JSON log entry to the NDJSON file and mirror to terminal."""
         entry: dict[str, Any] = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "trigger_id": self.trigger_id,

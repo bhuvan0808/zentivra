@@ -1,4 +1,10 @@
-"""Pydantic schemas for Snapshot API responses."""
+"""
+Pydantic schemas for Snapshot API responses.
+
+Defines response schemas for per-source snapshots within a run trigger:
+- GET /runs/{run_id}/triggers/{trigger_id}/snapshots: SnapshotResponse
+- GET /snapshots/{snapshot_id}: SnapshotResponse
+"""
 
 from datetime import datetime
 from typing import Optional
@@ -7,7 +13,7 @@ from pydantic import BaseModel
 
 
 class SnapshotResponse(BaseModel):
-    """Schema for snapshot API responses. Exposes UUIDs."""
+    """Response schema for snapshot endpoints. Exposes snapshot_id as UUID, never integer PK."""
 
     snapshot_id: str
     source_name: Optional[str] = None

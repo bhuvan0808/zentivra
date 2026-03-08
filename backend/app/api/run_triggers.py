@@ -1,4 +1,12 @@
-"""Run Triggers API - Query individual trigger executions and their results."""
+"""
+Run Triggers API
+================
+URL prefix: /api/run-triggers
+
+Query individual trigger executions and their results. Each trigger represents
+one pipeline run. Endpoints return trigger metadata, findings, and snapshots.
+All endpoints require authentication.
+"""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +28,7 @@ router = APIRouter(
 async def _get_trigger(
     trigger_id: str, db: AsyncSession, user: CurrentUser
 ) -> RunTrigger:
+    """Load trigger by UUID; 404 if not found or not owned by user."""
     repo = RunTriggerRepository(db)
     trigger = await repo.get_by_uuid(trigger_id)
     if not trigger:
@@ -35,7 +44,11 @@ async def get_trigger(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Get a single trigger execution by UUID."""
+    """
+    GET /api/run-triggers/{run_trigger_id}
+    Auth: Bearer token required.
+    Response: RunTriggerDetailResponse.
+    """
     trigger = await _get_trigger(run_trigger_id, db, user)
     digest = trigger.digests[0] if trigger.digests else None
     return RunTriggerDetailResponse(
@@ -60,7 +73,12 @@ async def list_trigger_findings(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """List findings produced by a specific trigger execution."""
+    """
+    GET /api/run-triggers/{run_trigger_id}/findings
+    Auth: Bearer token required.
+    Query: limit (1-500, default 100).
+    Response: list[FindingResponse].
+    """
     trigger = await _get_trigger(run_trigger_id, db, user)
     findings = (trigger.findings or [])[:limit]
     return [
@@ -84,7 +102,11 @@ async def list_trigger_snapshots(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """List snapshots (per-source summaries) for a trigger execution."""
+    """
+    GET /api/run-triggers/{run_trigger_id}/snapshots
+    Auth: Bearer token required.
+    Response: list[SnapshotResponse].
+    """
     trigger = await _get_trigger(run_trigger_id, db, user)
     snapshots = trigger.snapshots or []
     return [

@@ -23,7 +23,12 @@ from app.dependencies import CurrentUser, get_current_user
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application startup and shutdown lifecycle."""
+    """
+    Application lifespan manager: startup and shutdown sequence.
+
+    Startup order: log env -> connect Valkey -> log LLM/email config -> start scheduler.
+    Shutdown order: stop scheduler -> close Valkey -> dispose DB engine -> log shutdown.
+    """
     # ── Startup ──────────────────────────────────────────────────────────
     logger.info("zentivra_startup env=%s", settings.app_env.value)
 

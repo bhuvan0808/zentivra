@@ -1,4 +1,12 @@
-"""Execution Logs API - Preview and download per-agent NDJSON logs for a trigger."""
+"""
+Execution Logs API
+==================
+URL prefix: /api/run-triggers (shared with run_triggers router)
+
+Preview and download per-agent NDJSON logs for a trigger execution. Logs are
+stored under data/logs/{trigger_id}/{agent_name}/logs.ndjson.
+All endpoints require authentication.
+"""
 
 import json
 from pathlib import Path
@@ -59,7 +67,11 @@ async def list_trigger_logs(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """List available agent logs for a trigger execution."""
+    """
+    GET /api/run-triggers/{trigger_id}/logs
+    Auth: Bearer token required.
+    Response: list[{agent_name, file_size, line_count}].
+    """
     await _verify_trigger_ownership(trigger_id, db, user)
     log_dir = _trigger_log_dir(trigger_id)
 
@@ -132,7 +144,11 @@ async def download_trigger_log(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Download the raw .ndjson log file for a specific agent."""
+    """
+    GET /api/run-triggers/{trigger_id}/logs/{agent_name}/download
+    Auth: Bearer token required.
+    Response: FileResponse (application/x-ndjson).
+    """
     await _verify_trigger_ownership(trigger_id, db, user)
     log_dir = _trigger_log_dir(trigger_id)
     log_file = log_dir / agent_name / "logs.ndjson"

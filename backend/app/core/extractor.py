@@ -1,10 +1,10 @@
-"""
-Extractor Layer - Extract clean text and metadata from raw content.
+"""Extractor layer — content extraction from HTML and feeds.
+
+Second stage of the pipeline: fetch -> extract -> preprocess -> summarize -> dedup -> rank.
 
 Handles:
 - HTML pages → clean article text via trafilatura + BeautifulSoup
 - RSS/Atom feeds → feed entries via feedparser
-- PDF content → text extraction (optional)
 - Metadata extraction (title, date, author, etc.)
 """
 
@@ -19,7 +19,20 @@ from app.utils.logger import logger
 
 @dataclass
 class ExtractionResult:
-    """Result of content extraction."""
+    """Result of content extraction from HTML or other formats.
+
+    Attributes:
+        text: Extracted main text content.
+        title: Page/article title.
+        date: Publication date if available.
+        author: Author if available.
+        description: Meta description or summary.
+        method: Extraction method used ("trafilatura", "beautifulsoup", "css_selectors", etc.).
+        links: List of URLs found in the content (limited to 50).
+        metadata: Additional metadata (e.g., source_url, selectors_used).
+        success: True if extraction succeeded.
+        error: Error message if success=False.
+    """
 
     text: str = ""
     title: Optional[str] = None
@@ -35,7 +48,16 @@ class ExtractionResult:
 
 @dataclass
 class FeedEntry:
-    """A single entry from an RSS/Atom feed."""
+    """A single entry from an RSS/Atom feed.
+
+    Attributes:
+        title: Entry title.
+        link: Entry URL.
+        published: Publication datetime if available.
+        summary: Entry summary/description.
+        author: Author if available.
+        tags: List of tag terms.
+    """
 
     title: str
     link: str
@@ -46,8 +68,7 @@ class FeedEntry:
 
 
 class Extractor:
-    """
-    Multi-format content extractor.
+    """Multi-format content extractor for HTML and RSS/Atom feeds.
 
     Usage:
         extractor = Extractor()
@@ -61,13 +82,18 @@ class Extractor:
         url: str = "",
         css_selectors: dict | None = None,
     ) -> ExtractionResult:
-        """
-        Extract clean text from HTML content.
+        """Extract clean text from HTML content.
 
-        Strategy:
-        1. If CSS selectors provided, use BeautifulSoup with those selectors
-        2. Otherwise, use trafilatura for article extraction
-        3. Fallback to BeautifulSoup generic extraction
+        Strategy: (1) If css_selectors provided, use BeautifulSoup; (2) Else
+        trafilatura for article extraction; (3) Fallback to BeautifulSoup generic.
+
+        Args:
+            html: Raw HTML string.
+            url: Source URL for link resolution and metadata.
+            css_selectors: Optional dict with keys "title", "content", "date".
+
+        Returns:
+            ExtractionResult with text, title, date, etc. success=False if empty.
         """
         if not html or not html.strip():
             return ExtractionResult(
@@ -90,7 +116,11 @@ class Extractor:
         return result
 
     def _extract_with_trafilatura(self, html: str, url: str) -> ExtractionResult:
-        """Extract article content using trafilatura."""
+        """Extract article content using trafilatura.
+
+        Returns ExtractionResult with success=False if trafilatura returns empty
+        or is not installed. Extracts metadata (title, author, date) from JSON output.
+        """
         try:
             import trafilatura
 
@@ -166,7 +196,11 @@ class Extractor:
     def _extract_with_selectors(
         self, html: str, selectors: dict, url: str
     ) -> ExtractionResult:
-        """Extract content using CSS selectors."""
+        """Extract content using CSS selectors.
+
+        Expects selectors dict with keys: title, content, date (optional).
+        Returns ExtractionResult with success=False on exception.
+        """
         try:
             from bs4 import BeautifulSoup
 
@@ -213,7 +247,11 @@ class Extractor:
             return ExtractionResult(success=False, error=str(e), method="css_selectors")
 
     def _extract_with_beautifulsoup(self, html: str, url: str) -> ExtractionResult:
-        """Fallback: extract content using BeautifulSoup."""
+        """Fallback: extract content using BeautifulSoup.
+
+        Removes script/style/nav/footer/header; finds main/article/body.
+        Extracts links (up to 50). Returns ExtractionResult with success=False on exception.
+        """
         try:
             from bs4 import BeautifulSoup
 
@@ -270,7 +308,15 @@ class Extractor:
             return ExtractionResult(success=False, error=str(e), method="beautifulsoup")
 
     def extract_feed(self, content: str, feed_url: str = "") -> list[FeedEntry]:
-        """Extract entries from an RSS/Atom feed."""
+        """Extract entries from an RSS/Atom feed.
+
+        Args:
+            content: Raw feed XML string.
+            feed_url: Feed URL (for logging).
+
+        Returns:
+            List of FeedEntry. Returns [] on parse error.
+        """
         try:
             import feedparser
 
@@ -312,7 +358,7 @@ class Extractor:
             return []
 
     def _extract_title(self, html: str) -> Optional[str]:
-        """Extract page title from HTML."""
+        """Extract page title from HTML. Tries og:title, <title>, then first h1."""
         try:
             from bs4 import BeautifulSoup
 
@@ -333,7 +379,7 @@ class Extractor:
         return None
 
     def _parse_date(self, date_str: str) -> Optional[datetime]:
-        """Try to parse a date string in various formats."""
+        """Try to parse a date string in various formats. Returns None if unparseable."""
         import re
         from datetime import datetime
 

@@ -1,4 +1,10 @@
-"""Pydantic schemas for Finding API responses."""
+"""
+Pydantic schemas for Finding API responses.
+
+Defines response schemas for AI-generated findings:
+- GET /findings, GET /findings/{finding_id}: FindingResponse
+- GET /runs/{run_id}/triggers/{trigger_id}/findings: FindingResponse
+"""
 
 from datetime import datetime
 from typing import Optional
@@ -7,7 +13,12 @@ from pydantic import BaseModel, Field
 
 
 class FindingResponse(BaseModel):
-    """Schema for finding API responses. Exposes UUIDs, never integer PKs/FKs."""
+    """
+    Response schema for finding endpoints.
+
+    Exposes finding_id and run_trigger_id as UUIDs (via validation_alias for
+    run_trigger_uuid), never integer PKs/FKs. Used when listing or fetching findings.
+    """
 
     finding_id: str
     content: Optional[str] = None

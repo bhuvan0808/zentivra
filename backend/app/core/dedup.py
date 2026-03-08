@@ -1,8 +1,9 @@
-"""
-Deduplication Engine - Detect and cluster duplicate/similar findings.
+"""Deduplication engine — detect and cluster duplicate/similar findings.
 
-Uses sentence-transformers for semantic similarity and
-agglomerative clustering for topic grouping.
+Fifth stage of the pipeline: fetch -> extract -> preprocess -> summarize -> dedup -> rank.
+
+Uses exact hash matching for identical content and optional sentence-transformers
+for semantic similarity. Clusters unique findings by category.
 """
 
 import hashlib
@@ -15,7 +16,16 @@ from app.config import settings
 
 @dataclass
 class DedupResult:
-    """Result of deduplication for a set of findings."""
+    """Result of deduplication for a set of findings.
+
+    Attributes:
+        unique_findings: List of non-duplicate finding dicts.
+        duplicate_ids: List of keys (e.g., src_url) for duplicates.
+        clusters: Dict mapping cluster_id (e.g., cluster_models) to list of finding keys.
+        total_input: Total findings before dedup.
+        total_unique: Count of unique findings.
+        total_duplicates: Count of duplicates removed.
+    """
 
     unique_findings: list[dict] = field(default_factory=list)
     duplicate_ids: list[str] = field(default_factory=list)
@@ -45,6 +55,7 @@ class DedupEngine:
         similarity_threshold: float = 0.85,
         use_semantic_dedup: Optional[bool] = None,
     ):
+        """Initialize with similarity threshold (0-1) and optional semantic dedup toggle."""
         self.similarity_threshold = similarity_threshold
         self.use_semantic_dedup = (
             settings.enable_semantic_dedup
@@ -54,7 +65,7 @@ class DedupEngine:
         self._model = None
 
     def _get_embedding_model(self):
-        """Lazy-load the sentence transformer model."""
+        """Lazy-load the sentence transformer model. Returns None if not installed."""
         if self._model is None:
             try:
                 from sentence_transformers import SentenceTransformer
@@ -67,7 +78,7 @@ class DedupEngine:
         return self._model
 
     def _compute_text_hash(self, text: str) -> str:
-        """Compute hash for exact dedup."""
+        """Compute MD5 hash of normalized text for exact dedup."""
         normalized = " ".join(text.lower().split())
         return hashlib.md5(normalized.encode()).hexdigest()
 
@@ -148,7 +159,11 @@ class DedupEngine:
         return result
 
     def _semantic_dedup(self, findings: list[dict], model) -> set[str]:
-        """Use embeddings to find semantically similar findings."""
+        """Use embeddings to find semantically similar findings.
+
+        Returns set of finding keys to mark as duplicates. When two findings
+        exceed similarity_threshold, the one with lower confidence is marked duplicate.
+        """
 
         def _key(f: dict) -> str:
             return f.get("src_url", "") or str(id(f))
@@ -193,7 +208,7 @@ class DedupEngine:
             return set()
 
     def _cluster_findings(self, findings: list[dict]) -> dict[str, list[str]]:
-        """Cluster findings by category."""
+        """Cluster findings by category. Returns cluster_id -> list of finding keys."""
 
         def _key(f: dict) -> str:
             return f.get("src_url", "") or str(id(f))

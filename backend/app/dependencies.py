@@ -1,4 +1,10 @@
-"""FastAPI dependency injection chain: db -> repository -> service."""
+"""
+FastAPI dependency injection chain: db -> repository -> service.
+
+Wires database sessions, repositories, and services for each domain (source, run,
+finding, digest, auth). Auth dependencies extract Bearer tokens and validate via
+AuthService (Valkey-backed session cache for fast lookups).
+"""
 
 from dataclasses import dataclass
 
@@ -23,11 +29,18 @@ from app.services.auth_service import AuthService
 
 @dataclass
 class CurrentUser:
-    id: int        # users.id (PK) -- used as FK in data tables
-    user_id: str   # users.user_id (UUID) -- external identifier
+    """
+    Lightweight authenticated user for route dependencies.
+
+    id: users.id (PK) - used as FK in data tables (sources, runs, etc.)
+    user_id: users.user_id (UUID) - external identifier for API responses
+    """
+
+    id: int
+    user_id: str
 
 
-# ── Source ──────────────────────────────────────────────
+# ── Source (db -> repo -> service) ──────────────────────────────────────────
 
 
 def get_source_repository(db: AsyncSession = Depends(get_db)) -> SourceRepository:
@@ -40,7 +53,7 @@ def get_source_service(
     return SourceService(repo)
 
 
-# ── Run ─────────────────────────────────────────────────
+# ── Run (db -> repo -> service) ────────────────────────────────────────────
 
 
 def get_run_repository(db: AsyncSession = Depends(get_db)) -> RunRepository:
@@ -60,7 +73,7 @@ def get_run_service(
     return RunService(repo, trigger_repo)
 
 
-# ── Finding ─────────────────────────────────────────────
+# ── Finding (db -> repo -> service) ────────────────────────────────────────
 
 
 def get_finding_repository(db: AsyncSession = Depends(get_db)) -> FindingRepository:
@@ -73,7 +86,7 @@ def get_finding_service(
     return FindingService(repo)
 
 
-# ── Digest ──────────────────────────────────────────────
+# ── Digest (db -> repo -> service) ─────────────────────────────────────────
 
 
 def get_digest_repository(db: AsyncSession = Depends(get_db)) -> DigestRepository:
@@ -86,7 +99,7 @@ def get_digest_service(
     return DigestService(repo)
 
 
-# ── Auth ────────────────────────────────────────────────
+# ── Auth (db -> user repo + session repo -> auth service) ───────────────────
 
 
 def get_user_repository(db: AsyncSession = Depends(get_db)) -> UserRepository:
@@ -110,7 +123,12 @@ async def get_current_user(
     authorization: str = Header(..., alias="Authorization"),
     service: AuthService = Depends(get_auth_service),
 ) -> CurrentUser:
-    """Extract Bearer token and return lightweight CurrentUser (no DB hit on cache hit)."""
+    """
+    Auth dependency: extract Bearer token, validate via AuthService, return CurrentUser.
+
+    Auth flow: parse Authorization header -> validate_token (Valkey cache, then DB) ->
+    return CurrentUser. No DB hit when token is cached in Valkey.
+    """
     if not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=401, detail="Invalid authorization header format"
@@ -128,7 +146,11 @@ async def get_current_user_full(
     authorization: str = Header(..., alias="Authorization"),
     service: AuthService = Depends(get_auth_service),
 ) -> User:
-    """Extract Bearer token and return the full User model (for /me endpoint)."""
+    """
+    Auth dependency: extract Bearer token and return full User model.
+
+    Used for /me and other endpoints that need full user profile (email, name, etc.).
+    """
     if not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=401, detail="Invalid authorization header format"

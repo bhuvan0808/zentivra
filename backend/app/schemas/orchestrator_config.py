@@ -1,4 +1,12 @@
-"""Pydantic schemas for orchestrator configuration."""
+"""
+Pydantic schemas for orchestrator configuration.
+
+Defines schemas for the orchestrator's runtime configuration:
+- GET /orchestrator/config: OrchestratorConfigResponse
+- PATCH /orchestrator/config: OrchestratorConfigSchema (partial) -> OrchestratorConfigResponse
+
+Nested config sections: crawl, schedule, llm, deduplication, ranking, digest, notifications.
+"""
 
 from datetime import datetime
 from typing import Optional
@@ -7,7 +15,7 @@ from pydantic import BaseModel, Field
 
 
 class LLMAgentConfig(BaseModel):
-    """Per-agent LLM provider and model selection."""
+    """Per-agent LLM provider and model selection. Used within LLMConfig.agents dict."""
 
     provider: str = "groq"
     model: str = "llama-3.3-70b-versatile"
@@ -16,7 +24,7 @@ class LLMAgentConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
-    """Top-level LLM configuration with per-agent overrides."""
+    """Top-level LLM configuration. Default provider/model plus per-agent overrides in agents dict."""
 
     default_provider: str = "groq"
     default_model: str = "llama-3.3-70b-versatile"
@@ -26,6 +34,8 @@ class LLMConfig(BaseModel):
 
 
 class CrawlConfig(BaseModel):
+    """Crawling limits and behavior: page limits, timeouts, concurrency, robots.txt respect."""
+
     max_pages_per_domain: int = Field(default=50, ge=1, le=500)
     request_timeout_seconds: int = Field(default=30, ge=5, le=120)
     max_concurrent_urls: int = Field(default=5, ge=1, le=20)
@@ -35,6 +45,8 @@ class CrawlConfig(BaseModel):
 
 
 class ScheduleConfig(BaseModel):
+    """Default schedule for automated runs: run time, timezone, enabled flag."""
+
     run_time: str = "06:00"
     timezone: str = "Asia/Kolkata"
     enabled: bool = True
@@ -43,6 +55,8 @@ class ScheduleConfig(BaseModel):
 
 
 class DeduplicationConfig(BaseModel):
+    """Deduplication thresholds: similarity and minimum confidence for filtering findings."""
+
     similarity_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
     min_confidence: float = Field(default=0.3, ge=0.0, le=1.0)
 
@@ -50,6 +64,8 @@ class DeduplicationConfig(BaseModel):
 
 
 class RankingConfig(BaseModel):
+    """Weights for ranking findings: relevance, novelty, credibility, actionability."""
+
     relevance_weight: float = Field(default=0.35, ge=0.0, le=1.0)
     novelty_weight: float = Field(default=0.25, ge=0.0, le=1.0)
     credibility_weight: float = Field(default=0.20, ge=0.0, le=1.0)
@@ -66,6 +82,8 @@ class DigestConfig(BaseModel):
 
 
 class NotificationsConfig(BaseModel):
+    """Email notification settings: recipients list, send-on-empty behavior."""
+
     email_recipients: list[str] = Field(default_factory=list)
     send_on_empty: bool = False
 
@@ -92,7 +110,7 @@ class OrchestratorConfigSchema(BaseModel):
 
 
 class OrchestratorConfigResponse(BaseModel):
-    """API response wrapping the config with metadata."""
+    """Response for GET/PATCH /orchestrator/config. Wraps full config with updated_at metadata."""
 
     config: OrchestratorConfigSchema
     updated_at: Optional[datetime] = None

@@ -1,4 +1,12 @@
-"""Findings API - Browse and search intelligence findings."""
+"""
+Findings API
+=============
+URL prefix: /api/findings
+
+Browse and search intelligence findings produced by pipeline runs. Supports
+filtering by category and confidence, pagination, and aggregate stats.
+All endpoints require authentication.
+"""
 
 from typing import Optional
 
@@ -20,7 +28,12 @@ async def list_findings(
     service: FindingService = Depends(get_finding_service),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Browse findings with filters and pagination."""
+    """
+    GET /api/findings/
+    Auth: Bearer token required.
+    Query: category (optional), min_confidence (0-1, optional), page, page_size.
+    Response: list[FindingResponse].
+    """
     return await service.list_findings(
         user.id,
         category=category,
@@ -35,7 +48,11 @@ async def findings_stats(
     service: FindingService = Depends(get_finding_service),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Get finding statistics (counts by category)."""
+    """
+    GET /api/findings/stats
+    Auth: Bearer token required.
+    Response: dict with counts by category.
+    """
     return await service.get_stats(user.id)
 
 
@@ -45,5 +62,9 @@ async def get_finding(
     service: FindingService = Depends(get_finding_service),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Get a finding by its UUID."""
+    """
+    GET /api/findings/{finding_id}
+    Auth: Bearer token required.
+    Response: FindingResponse.
+    """
     return await service.get_by_uuid(finding_id, user.id)

@@ -1,6 +1,8 @@
 """
-OrchestratorConfig model - Single-row table storing the orchestrator's
-runtime configuration as a JSON document.
+OrchestratorConfig model — single-row global config for the orchestrator.
+
+Stores runtime settings (e.g. poll interval, concurrency) as a JSON document.
+Typically one row with id="default"; allows future multi-tenant configs.
 """
 
 from datetime import datetime, timezone
@@ -12,6 +14,13 @@ from app.database import Base
 
 
 class OrchestratorConfig(Base):
+    """
+    Orchestrator runtime config (table: orchestrator_config).
+
+    Single-row pattern: id="default" for the global config. No relationships.
+    Business rules: config is a free-form JSON dict; updated_at tracks changes.
+    """
+
     __tablename__ = "orchestrator_config"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default="default")

@@ -1,8 +1,10 @@
 """
 Base Agent - Shared interface for all agent workers.
 
-Pipeline per source URL:  fetch -> extract -> preprocess -> AI summarize
-Returns a list of finding dicts; the orchestrator handles DB persistence.
+Defines the agent pipeline: discover URLs -> BFS crawl -> fetch -> extract ->
+preprocess -> keyword filter -> summarize. Returns a structured dict with
+{findings, errors, urls_attempted, urls_succeeded}. The orchestrator handles
+DB persistence.
 """
 
 import asyncio
@@ -23,9 +25,13 @@ class BaseAgent(ABC):
     """
     Abstract base class for agent workers.
 
+    Defines the full pipeline: discover URLs -> BFS crawl (up to crawl_depth) ->
+    for each URL: fetch -> extract -> preprocess -> keyword filter -> summarize.
+    Returns structured dict {findings, errors, urls_attempted, urls_succeeded}.
+
     Subclasses implement:
         - agent_type: str property
-        - discover_urls(): custom URL discovery from a Source
+        - discover_urls(): custom URL discovery from a Source (override pattern)
         - post_process_finding(): agent-specific enrichment
     """
 
@@ -49,6 +55,11 @@ class BaseAgent(ABC):
         run_logger=None,
     ) -> dict:
         """Execute the agent pipeline for all assigned sources.
+
+        Aggregation logic: iterates over enabled sources, calls _process_source()
+        for each, and merges results into a single aggregate dict. Findings and
+        errors are extended; urls_attempted and urls_succeeded are summed.
+        Source-level exceptions are caught and appended to errors.
 
         Returns structured result dict:
             findings  - list of finding dicts
@@ -149,6 +160,15 @@ class BaseAgent(ABC):
         run_logger=None,
     ) -> dict:
         """Process a single source with BFS crawl up to configured crawl_depth.
+
+        BFS crawl loop:
+            - Level 0: seed URLs from discover_urls()
+            - Each level: process URLs via _process_url(); collect _discovered_links
+            - Next level: URLs from _discovered_links not yet visited
+            - Stops when crawl_depth reached or no more links
+        Timeout handling: source_processing_timeout_seconds aborts the source;
+        url_processing_timeout_seconds aborts individual URL processing.
+        Respects max_urls_per_source cap.
 
         Returns a dict with findings, errors, urls_attempted, urls_succeeded.
         """
@@ -295,11 +315,19 @@ class BaseAgent(ABC):
         run_config: Run | None,
         run_logger=None,
     ) -> tuple[Optional[dict], Optional[str]]:
-        """Single URL pipeline: Fetch -> Extract -> Preprocess -> AI Summarize.
+        """Single URL pipeline: fetch -> extract -> preprocess -> keyword filter -> summarize.
+
+        Pipeline steps:
+            1. Fetch: HTTP fetch via Fetcher
+            2. Extract: HTML to text + links via Extractor
+            3. Preprocess: clean/normalize text
+            4. Keyword filter: if run_config.keywords set, skip when no match (not an error)
+            5. Summarize: AI summarization via Summarizer
+            6. Build finding dict and run post_process_finding()
 
         Returns:
             (finding_dict, None)  on success
-            (None, error_msg)     on failure
+            (None, error_msg)     on failure (fetch/extract/preprocess/summarize)
             (None, None)          on intentional skip (keyword filter)
         """
 
@@ -449,7 +477,11 @@ class BaseAgent(ABC):
     # ── Overridable hooks ──────────────────────────────────────────
 
     async def discover_urls(self, source: Source) -> list[str]:
-        """Default URL discovery: just use source.url."""
+        """Discover URLs to process for a source. Override in subclasses.
+
+        Default: returns [source.url]. Subclasses may query APIs, parse feeds,
+        or expand to multiple URLs (e.g., Semantic Scholar search, HF API).
+        """
         return [source.url]
 
     async def post_process_finding(

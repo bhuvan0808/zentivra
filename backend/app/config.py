@@ -12,7 +12,6 @@ from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 # Resolve paths
 BASE_DIR = Path(__file__).resolve().parent.parent  # backend/
 CONFIG_DIR = BASE_DIR / "config"
@@ -121,7 +120,16 @@ class Settings(BaseSettings):
 
     @property
     def active_llm_provider(self) -> str:
-        """Determine which LLM provider is configured."""
+        """
+        Determine which LLM provider is active.
+
+        Fallback logic:
+        1. If llm_provider is set and that provider has a valid (non-placeholder) API key,
+           return it.
+        2. Otherwise, iterate providers in priority order (groq, openrouter, gemini, openai,
+           anthropic) and return the first with a valid key.
+        3. If none configured, return "none".
+        """
         configured = {
             "groq": bool(
                 self.groq_api_key and self.groq_api_key != "your-groq-api-key-here"
