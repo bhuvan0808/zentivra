@@ -80,7 +80,7 @@ class WorkflowService:
                 continue
             findings.extend(result)
 
-        digest_data = await self.digest_compiler.compile(report_id, findings, db=None)
+        digest_data = await self.digest_compiler.compile(report_id, findings)
 
         if title:
             digest_data["executive_summary"] = (
