@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import {
@@ -16,6 +17,9 @@ import {
   Eye,
   FileText,
   MoreVertical,
+  Power,
+  PowerOff,
+  Info,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { fmtDate, fmtDateTime, fmtTimeSec } from "@/lib/formatDate";
@@ -149,6 +153,8 @@ export default function RunsPage() {
     handleDownloadDigestPdf,
   } = useRuns();
 
+  const [detailsRun, setDetailsRun] = useState<Run | null>(null);
+
   if (loading) {
     return (
       <div>
@@ -209,7 +215,7 @@ export default function RunsPage() {
                 value={run.run_id}
                 className="group/row rounded-lg border bg-card px-4 last:border-b"
               >
-                <div className="flex items-center gap-3 py-3">
+                <div className="flex items-center gap-3 py-2 sm:py-3">
                   <span className="shrink-0 w-6 text-center text-xs text-muted-foreground font-mono">
                     {i + 1}
                   </span>
@@ -223,8 +229,11 @@ export default function RunsPage() {
                           <StatusBadge
                             variant={run.is_enabled ? "success" : "neutral"}
                             dot
+                            className="h-4 w-4 justify-center p-0 sm:h-auto sm:w-auto sm:px-2.5 sm:py-0.5 [&>span:last-child]:hidden sm:[&>span:last-child]:inline"
                           >
-                            {run.is_enabled ? "Active" : "Disabled"}
+                            <span>
+                              {run.is_enabled ? "Active" : "Disabled"}
+                            </span>
                           </StatusBadge>
                           {run.has_active_triggers && (
                             <span className="inline-flex items-center gap-1.5 text-xs text-warning">
@@ -236,7 +245,7 @@ export default function RunsPage() {
                             </span>
                           )}
                         </div>
-                        <p className="mt-1.5 text-xs text-muted-foreground truncate flex items-center gap-1">
+                        <p className="mt-1.5 hidden sm:flex text-xs text-muted-foreground truncate items-center gap-1">
                           <span>{run.sources?.length ?? 0} sources</span>
                           <span>&middot;</span>
                           {run.crawl_frequency ? (
@@ -263,7 +272,9 @@ export default function RunsPage() {
                         variant="ghost"
                         size="icon"
                         className="size-8"
-                        disabled={triggeringId === run.run_id || !run.is_enabled}
+                        disabled={
+                          triggeringId === run.run_id || !run.is_enabled
+                        }
                         onClick={() => handleTrigger(run)}
                       >
                         {triggeringId === run.run_id ? (
@@ -294,7 +305,11 @@ export default function RunsPage() {
                     <div className="flex sm:hidden items-center">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="size-8">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8"
+                          >
                             <MoreVertical className="size-4 text-muted-foreground" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -305,24 +320,44 @@ export default function RunsPage() {
                               handleToggleEnabled(run);
                             }}
                           >
-                            {run.is_enabled ? "Disable Run" : "Enable Run"}
+                            {run.is_enabled ? (
+                              <>
+                                <PowerOff className="mr-2 size-4" />
+                                Disable Run
+                              </>
+                            ) : (
+                              <>
+                                <Power className="mr-2 size-4" />
+                                Enable Run
+                              </>
+                            )}
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            disabled={triggeringId === run.run_id || !run.is_enabled}
+                            disabled={
+                              triggeringId === run.run_id || !run.is_enabled
+                            }
                             onClick={() => handleTrigger(run)}
                           >
                             <Play className="mr-2 size-4" />
                             Trigger Run
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setDetailsRun(run);
+                            }}
+                          >
+                            <Info className="mr-2 size-4" />
+                            View Details
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => setEditingRun(run)}>
                             <Pencil className="mr-2 size-4" />
                             Edit Run
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            className="text-danger focus:text-danger"
+                            className="text-danger focus:text-danger focus:bg-danger/10"
                             onClick={() => setDeletingRun(run)}
                           >
-                            <Trash2 className="mr-2 size-4" />
+                            <Trash2 className="mr-2 size-4 text-danger" />
                             Delete Run
                           </DropdownMenuItem>
                         </DropdownMenuContent>
@@ -838,6 +873,62 @@ export default function RunsPage() {
                     )}
                 </>
               )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+      {/* Run Details Dialog for mobile */}
+      <Dialog
+        open={!!detailsRun}
+        onOpenChange={(open) => !open && setDetailsRun(null)}
+      >
+        <DialogContent className="max-w-md w-[95vw] rounded-lg p-6">
+          <DialogHeader>
+            <DialogTitle>{detailsRun?.run_name}</DialogTitle>
+          </DialogHeader>
+          {detailsRun && (
+            <div className="space-y-4 text-sm mt-2">
+              <div className="flex justify-between border-b pb-2">
+                <span className="text-muted-foreground">Sources</span>
+                <span className="font-medium">
+                  {detailsRun.sources?.length ?? 0}
+                </span>
+              </div>
+              <div className="flex justify-between border-b pb-2">
+                <span className="text-muted-foreground">Frequency</span>
+                <span className="font-medium capitalize">
+                  {detailsRun.crawl_frequency
+                    ? detailsRun.crawl_frequency.frequency
+                    : "Manual"}
+                </span>
+              </div>
+              {detailsRun.crawl_frequency && (
+                <div className="flex justify-between border-b pb-2">
+                  <span className="text-muted-foreground">Schedule Time</span>
+                  <span className="font-medium">
+                    {utcToLocal(detailsRun.crawl_frequency.time)}
+                  </span>
+                </div>
+              )}
+              {detailsRun.crawl_frequency?.periods &&
+                detailsRun.crawl_frequency.periods.length > 0 && (
+                  <div className="flex justify-between border-b pb-2">
+                    <span className="text-muted-foreground">
+                      {detailsRun.crawl_frequency.frequency === "weekly"
+                        ? "Days"
+                        : "Dates"}
+                    </span>
+                    <span className="font-medium capitalize">
+                      {detailsRun.crawl_frequency.periods.join(", ")}
+                    </span>
+                  </div>
+                )}
+              <div className="flex justify-between pt-1">
+                <span className="text-muted-foreground">Created</span>
+                <span className="font-medium">
+                  {fmtDate(detailsRun.created_at)}
+                </span>
+              </div>
             </div>
           )}
         </DialogContent>
