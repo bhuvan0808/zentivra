@@ -26,7 +26,10 @@ import type {
   SignupPayload,
   AgentLogSummary,
   LogPreview,
-  DashboardStats,
+  DashboardKpi,
+  DashboardCharts,
+  DashboardTriggers,
+  DashboardSources,
 } from "./types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -379,8 +382,20 @@ export function getTriggerLogDownloadUrl(
 
 // ── Dashboard ──
 
-export function getDashboardStats(): Promise<ApiResult<DashboardStats>> {
-  return request<DashboardStats>(buildUrl("/api/dashboard/stats"));
+export function getDashboardKpi(): Promise<ApiResult<DashboardKpi>> {
+  return request<DashboardKpi>(buildUrl("/api/dashboard/kpi"));
+}
+
+export function getDashboardCharts(): Promise<ApiResult<DashboardCharts>> {
+  return request<DashboardCharts>(buildUrl("/api/dashboard/charts"));
+}
+
+export function getDashboardTriggers(): Promise<ApiResult<DashboardTriggers>> {
+  return request<DashboardTriggers>(buildUrl("/api/dashboard/triggers"));
+}
+
+export function getDashboardSources(): Promise<ApiResult<DashboardSources>> {
+  return request<DashboardSources>(buildUrl("/api/dashboard/sources"));
 }
 
 export async function downloadTriggerLog(

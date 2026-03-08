@@ -35,7 +35,7 @@ class Run(Base):
     )
     email_recipients: Mapped[list | None] = mapped_column(JSON, nullable=True)
     sources: Mapped[list] = mapped_column(JSON, nullable=False)
-    crawl_frequency: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    crawl_frequency: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     crawl_depth: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     keywords: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
@@ -55,6 +55,12 @@ class Run(Base):
     updated_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
     triggers = relationship("RunTrigger", back_populates="run", lazy="selectin")
+
+    @property
+    def has_active_triggers(self) -> bool:
+        if not self.triggers:
+            return False
+        return any(t.status in ("pending", "running") for t in self.triggers)
 
     def __repr__(self) -> str:
         return f"<Run(run_name='{self.run_name}', run_id='{self.run_id}')>"

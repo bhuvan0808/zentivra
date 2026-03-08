@@ -66,6 +66,7 @@ async def create_run(
         crawl_depth=run.crawl_depth,
         keywords=run.keywords,
         is_enabled=run.is_enabled,
+        has_active_triggers=False,
         created_at=run.created_at,
         updated_at=run.updated_at,
         trigger=trigger_resp,

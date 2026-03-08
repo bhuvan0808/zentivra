@@ -56,6 +56,8 @@ export function getRunStatusVariant(status: string): StatusVariant {
       return "danger";
     case "partial":
       return "warning";
+    case "completed_empty":
+      return "neutral";
     default:
       return "neutral";
   }

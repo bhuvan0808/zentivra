@@ -31,6 +31,7 @@ Except **422 Validation Errors**, which return:
 ```
 
 **UI handling rule of thumb:**
+
 - `401` errors: redirect to login page, preserve the current route for post-login navigation.
 - `403` errors: show `response.detail` (account disabled, etc.).
 - `4xx` errors: show `response.detail` (string) directly to the user.
@@ -293,9 +294,16 @@ curl -X GET "$BASE_URL/scheduler"
   "running": true,
   "jobs": [
     {
-      "id": "daily_digest",
-      "name": "Daily AI Radar Digest",
+      "id": "run_1",
+      "name": "Run 1: Daily AI Scan",
+      "frequency": "daily",
       "next_run": "2026-03-06T06:00:00+00:00"
+    },
+    {
+      "id": "run_3",
+      "name": "Run 3: Weekly Competitor Watch",
+      "frequency": "weekly",
+      "next_run": "2026-03-10T09:00:00+00:00"
     }
   ]
 }
@@ -490,15 +498,28 @@ curl -X GET "$BASE_URL/api/runs?limit=20" \
     "enable_pdf_gen": true,
     "enable_email_alert": false,
     "sources": ["e5b5adf6-f19f-4fbe-8f64-0aeecf0f4b2c"],
-    "crawl_frequency": "daily",
+    "crawl_frequency": {
+      "frequency": "daily",
+      "time": "09:00",
+      "periods": null
+    },
     "crawl_depth": 2,
     "keywords": ["gpt", "llama"],
     "is_enabled": true,
+    "has_active_triggers": false,
     "created_at": "2026-03-05T10:20:00+00:00",
     "updated_at": "2026-03-05T10:20:00+00:00"
   }
 ]
 ```
+
+`crawl_frequency` is `null` when no schedule is set, otherwise an object:
+
+| Field | Type | Description |
+|---|---|---|
+| `frequency` | `"daily"` \| `"weekly"` \| `"monthly"` | Schedule type |
+| `time` | `string` | `HH:MM` in UTC (24-hour) |
+| `periods` | `string[] \| null` | `null` for daily. Day abbreviations for weekly (e.g. `["mon","wed"]`). Date strings for monthly (e.g. `["1","15"]`). |
 
 Returns empty array `[]` when no runs exist.
 
@@ -512,6 +533,11 @@ curl -X POST "$BASE_URL/api/runs" \
     "run_name": "Weekly Research",
     "description": "Research scout sweep",
     "sources": ["e5b5adf6-f19f-4fbe-8f64-0aeecf0f4b2c"],
+    "crawl_frequency": {
+      "frequency": "weekly",
+      "time": "06:00",
+      "periods": ["mon", "thu"]
+    },
     "crawl_depth": 2,
     "keywords": ["reasoning", "agent"]
   }'
@@ -543,12 +569,16 @@ curl -X PUT "$BASE_URL/api/runs/8ef7675f-a7bb-4979-b736-53fa775f06a9" \
   -H "Authorization: Bearer <auth_token>" \
   -H "Content-Type: application/json" \
   -d '{
-    "is_enabled": false,
+    "crawl_frequency": {
+      "frequency": "monthly",
+      "time": "03:30",
+      "periods": ["1", "15"]
+    },
     "crawl_depth": 3
   }'
 ```
 
-**Success (200):** full run object with updated fields.
+**Success (200):** full run object with updated fields. To remove the schedule, send `"crawl_frequency": null`.
 
 ### 5) Delete Run
 
@@ -821,10 +851,12 @@ curl -X GET "$BASE_URL/api/digests?limit=30" \
 [
   {
     "digest_id": "5f2f9ac8-8e63-4b95-8f41-7f53a2288b89",
+    "digest_name": "Daily Digest 2026-03-05",
     "run_trigger_id": "d3e4f5a6-b7c8-9d0e-f1a2-b3c4d5e6f7a8",
     "pdf_path": "data/digests/zentivra_digest_2026-03-05.pdf",
     "html_path": "data/digests/zentivra_digest_2026-03-05.html",
     "status": "completed",
+    "has_pdf": true,
     "created_at": "2026-03-05T10:24:05+00:00"
   }
 ]
@@ -839,7 +871,20 @@ curl -X GET "$BASE_URL/api/digests/latest" \
   -H "Authorization: Bearer <auth_token>"
 ```
 
-**Success (200):** same shape as list item above (single object).
+**Success (200):**
+
+```json
+{
+  "digest_id": "5f2f9ac8-8e63-4b95-8f41-7f53a2288b89",
+  "digest_name": "Daily Digest 2026-03-05",
+  "run_trigger_id": "d3e4f5a6-b7c8-9d0e-f1a2-b3c4d5e6f7a8",
+  "pdf_path": "data/digests/zentivra_digest_2026-03-05.pdf",
+  "html_path": "data/digests/zentivra_digest_2026-03-05.html",
+  "status": "completed",
+  "has_pdf": true,
+  "created_at": "2026-03-05T10:24:05+00:00"
+}
+```
 
 **Error -- no digests exist (404):**
 
@@ -1050,29 +1095,229 @@ async function apiCall(url, options = {}) {
 
 ### Complete error detail messages by endpoint
 
-| Endpoint | Status | `detail` message |
-|---|---|---|
-| `POST /api/auth/signup` | 409 | `"Username already taken"` |
-| `POST /api/auth/signup` | 409 | `"Email already registered"` |
-| `POST /api/auth/login` | 401 | `"Invalid credentials"` |
-| `POST /api/auth/login` | 403 | `"Account is disabled"` |
-| Any protected route | 401 | `"Invalid or expired session"` |
-| Any protected route | 401 | `"Session expired"` |
-| Any protected route | 401 | `"Invalid authorization header format"` |
-| Any protected route | 401 | `"Missing auth token"` |
-| `GET /api/sources/{id}` | 404 | `"Source not found"` |
-| `PUT /api/sources/{id}` | 404 | `"Source not found"` |
-| `DELETE /api/sources/{id}` | 404 | `"Source not found"` |
-| `GET /api/runs/{id}` | 404 | `"Run not found"` |
-| `POST /api/runs/{id}/trigger` | 404 | `"Run not found"` |
-| `POST /api/runs/{id}/trigger` | 400 | `"Run is disabled"` |
-| `GET /api/run-triggers/{id}` | 404 | `"Run trigger not found"` |
-| `GET /api/findings/{id}` | 404 | `"Finding not found"` |
-| `GET /api/digests/latest` | 404 | `"No digests found"` |
-| `GET /api/digests/{id}` | 404 | `"Digest not found"` |
-| `GET /api/digests/{id}/pdf` | 404 | `"PDF not yet generated for this digest"` |
-| `GET /api/digests/{id}/pdf` | 404 | `"PDF file not found on disk"` |
-| `POST /api/config/upload` | 422 | `"Invalid JSON: ..."` / `"Invalid YAML: ..."` |
-| `POST /api/config/upload` | 422 | `"Unsupported file format: '...'"` |
-| Any `POST`/`PUT` with bad body | 422 | `[{loc, msg, type, input}, ...]` (array) |
-| Any unhandled server error | 500 | `"Internal server error"` |
+
+| Endpoint                       | Status | `detail` message                              |
+| ------------------------------ | ------ | --------------------------------------------- |
+| `POST /api/auth/signup`        | 409    | `"Username already taken"`                    |
+| `POST /api/auth/signup`        | 409    | `"Email already registered"`                  |
+| `POST /api/auth/login`         | 401    | `"Invalid credentials"`                       |
+| `POST /api/auth/login`         | 403    | `"Account is disabled"`                       |
+| Any protected route            | 401    | `"Invalid or expired session"`                |
+| Any protected route            | 401    | `"Session expired"`                           |
+| Any protected route            | 401    | `"Invalid authorization header format"`       |
+| Any protected route            | 401    | `"Missing auth token"`                        |
+| `GET /api/sources/{id}`        | 404    | `"Source not found"`                          |
+| `PUT /api/sources/{id}`        | 404    | `"Source not found"`                          |
+| `DELETE /api/sources/{id}`     | 404    | `"Source not found"`                          |
+| `GET /api/runs/{id}`           | 404    | `"Run not found"`                             |
+| `POST /api/runs/{id}/trigger`  | 404    | `"Run not found"`                             |
+| `POST /api/runs/{id}/trigger`  | 400    | `"Run is disabled"`                           |
+| `GET /api/run-triggers/{id}`   | 404    | `"Run trigger not found"`                     |
+| `GET /api/findings/{id}`       | 404    | `"Finding not found"`                         |
+| `GET /api/digests/latest`      | 404    | `"No digests found"`                          |
+| `GET /api/digests/{id}`        | 404    | `"Digest not found"`                          |
+| `GET /api/digests/{id}/pdf`    | 404    | `"PDF not yet generated for this digest"`     |
+| `GET /api/digests/{id}/pdf`    | 404    | `"PDF file not found on disk"`                |
+| `POST /api/config/upload`      | 422    | `"Invalid JSON: ..."` / `"Invalid YAML: ..."` |
+| `POST /api/config/upload`      | 422    | `"Unsupported file format: '...'"`            |
+| Any `POST`/`PUT` with bad body | 422    | `[{loc, msg, type, input}, ...]` (array)      |
+| Any unhandled server error     | 500    | `"Internal server error"`                     |
+
+
+---
+
+## Dashboard API (`/api/dashboard`) -- Protected
+
+All dashboard endpoints require `Authorization: Bearer <token>`.
+The FE calls each endpoint independently with separate loading states.
+
+### 1) KPI Cards (Tiles 1-3)
+
+```bash
+curl -X GET "$BASE_URL/api/dashboard/kpi" \
+  -H "Authorization: Bearer <token>"
+```
+
+**200 OK:**
+
+```json
+{
+  "total_findings": 156,
+  "total_sources": 12,
+  "runs_overview": {
+    "total_runs": 8,
+    "enabled_runs": 6
+  }
+}
+```
+
+**401 Unauthorized:**
+
+```json
+{ "detail": "Invalid authorization header format" }
+```
+
+**500 Internal Server Error:**
+
+```json
+{ "detail": "Internal server error" }
+```
+
+---
+
+### 2) Charts Data (Tiles 6-9, 12)
+
+```bash
+curl -X GET "$BASE_URL/api/dashboard/charts" \
+  -H "Authorization: Bearer <token>"
+```
+
+**200 OK:**
+
+```json
+{
+  "confidence_distribution": {
+    "high": 89,
+    "medium": 45,
+    "low": 22
+  },
+  "daily_findings": [
+    { "date": "2026-02-03", "count": 0 },
+    { "date": "2026-02-04", "count": 5 },
+    { "date": "2026-02-05", "count": 18 },
+    { "date": "2026-03-05", "count": 12 }
+  ],
+  "confidence_trend": [
+    { "date": "2026-02-03", "avg_confidence": null },
+    { "date": "2026-02-04", "avg_confidence": 0.72 },
+    { "date": "2026-02-05", "avg_confidence": 0.65 },
+    { "date": "2026-03-05", "avg_confidence": 0.81 }
+  ],
+  "by_category": {
+    "models": 42,
+    "apis": 28,
+    "research": 15,
+    "benchmarks": 8
+  },
+  "by_agent_type": {
+    "openai_agent": 45,
+    "anthropic_agent": 38,
+    "google_agent": 22,
+    "meta_agent": 15
+  }
+}
+```
+
+**Note:** `daily_findings` and `confidence_trend` cover the last 31 days (today + 30 prior), sorted ascending. Days with no findings have `count: 0` and `avg_confidence: null`.
+
+**401 Unauthorized:**
+
+```json
+{ "detail": "Invalid authorization header format" }
+```
+
+**500 Internal Server Error:**
+
+```json
+{ "detail": "Internal server error" }
+```
+
+---
+
+### 3) Trigger Outcomes + Recent Activity (Tiles 10, 13)
+
+```bash
+curl -X GET "$BASE_URL/api/dashboard/triggers" \
+  -H "Authorization: Bearer <token>"
+```
+
+**200 OK:**
+
+```json
+{
+  "trigger_status_counts": {
+    "completed": 42,
+    "failed": 5,
+    "partial": 3,
+    "completed_empty": 8,
+    "running": 1,
+    "pending": 0
+  },
+  "recent_triggers": [
+    {
+      "run_trigger_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "run_name": "Daily AI Scan",
+      "status": "completed",
+      "findings_count": 23,
+      "snapshots_count": 5,
+      "created_at": "2026-03-05T06:00:00+00:00"
+    },
+    {
+      "run_trigger_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+      "run_name": "Weekly Competitor Watch",
+      "status": "partial",
+      "findings_count": 8,
+      "snapshots_count": 3,
+      "created_at": "2026-03-04T09:00:00+00:00"
+    }
+  ]
+}
+```
+
+**Note:** `trigger_status_counts` always includes all 6 statuses, with `0` for those that have no triggers. `recent_triggers` returns the last 10 triggers, descending by `created_at`.
+
+**401 Unauthorized:**
+
+```json
+{ "detail": "Invalid authorization header format" }
+```
+
+**500 Internal Server Error:**
+
+```json
+{ "detail": "Internal server error" }
+```
+
+---
+
+### 4) Top Sources by Findings (Tile 11)
+
+```bash
+curl -X GET "$BASE_URL/api/dashboard/sources" \
+  -H "Authorization: Bearer <token>"
+```
+
+**200 OK:**
+
+```json
+{
+  "findings_by_source": [
+    { "source_name": "openai-blog", "display_name": "OpenAI Blog", "count": 87 },
+    { "source_name": "arxiv-ml", "display_name": "ArXiv ML Feed", "count": 54 },
+    { "source_name": "hf-papers", "display_name": "HuggingFace Papers", "count": 31 },
+    { "source_name": "anthropic-news", "display_name": "Anthropic News", "count": 22 }
+  ]
+}
+```
+
+**Note:** Returns top 8 sources ranked by total findings (descending). Empty array when no data exists.
+
+**401 Unauthorized:**
+
+```json
+{ "detail": "Invalid authorization header format" }
+```
+
+**500 Internal Server Error:**
+
+```json
+{ "detail": "Internal server error" }
+```
+
+---
+
+### Dashboard: Other Tiles (served by existing endpoints)
+
+**Tile 4 -- Latest Digest:** `GET /api/digests/latest` (see Digests API section). Response now includes `has_pdf: boolean`.
+
+**Tile 5 -- Upcoming Runs:** `GET /scheduler` (see Health Endpoints section). Response now includes `frequency` per job.

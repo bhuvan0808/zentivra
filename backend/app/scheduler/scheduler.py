@@ -9,10 +9,9 @@ from app.utils.logger import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.config import settings
-
 # Global scheduler instance
 _scheduler: AsyncIOScheduler | None = None
+_job_frequencies: dict[str, str] = {}
 
 
 async def scheduled_run(run_id: int):
@@ -51,13 +50,13 @@ async def scheduled_run(run_id: int):
 
 async def sync_scheduler():
     """Sync the APScheduler jobs with the Runs in the database."""
-    global _scheduler
+    global _scheduler, _job_frequencies
     if not _scheduler:
         return
 
-    # Clear old jobs
     for job in _scheduler.get_jobs():
         job.remove()
+    _job_frequencies.clear()
 
     from app.database import async_session
     from app.models.run import Run
@@ -69,41 +68,57 @@ async def sync_scheduler():
 
     jobs_added = 0
     for run in runs:
-        if not run.crawl_frequency:
+        cf = run.crawl_frequency
+        if not cf:
             continue
 
-        parts = run.crawl_frequency.split("|")
-        freq = parts[0]
-        time_str = parts[1] if len(parts) > 1 else "00:00"
+        if isinstance(cf, str):
+            parts = cf.split("|")
+            freq = parts[0]
+            time_str = parts[1] if len(parts) > 1 else "00:00"
+            periods_raw = None
+            if freq in ("weekly", "monthly") and len(parts) > 2:
+                candidate = parts[2]
+                if "/" not in candidate:
+                    periods_raw = candidate.split(",")
+            cf = {"frequency": freq, "time": time_str, "periods": periods_raw}
+
+        if not isinstance(cf, dict):
+            continue
+
+        freq = cf.get("frequency")
+        time_str = cf.get("time", "00:00")
 
         try:
             hour, minute = map(int, time_str.split(":"))
-        except ValueError:
+        except (ValueError, AttributeError):
             hour, minute = 0, 0
 
-        tz = parts[-1] if len(parts) > 2 and "/" in parts[-1] else settings.timezone
+        periods = cf.get("periods")
 
         trigger = None
         if freq == "daily":
-            trigger = CronTrigger(hour=hour, minute=minute, timezone=tz)
+            trigger = CronTrigger(hour=hour, minute=minute, timezone="UTC")
         elif freq == "weekly":
-            days = parts[2] if len(parts) > 2 and parts[2] != tz else "mon"
+            days = ",".join(periods) if periods else "mon"
             trigger = CronTrigger(
-                day_of_week=days, hour=hour, minute=minute, timezone=tz
+                day_of_week=days, hour=hour, minute=minute, timezone="UTC"
             )
         elif freq == "monthly":
-            dates = parts[2] if len(parts) > 2 and parts[2] != tz else "1"
-            trigger = CronTrigger(day=dates, hour=hour, minute=minute, timezone=tz)
+            dates = ",".join(periods) if periods else "1"
+            trigger = CronTrigger(day=dates, hour=hour, minute=minute, timezone="UTC")
 
         if trigger:
+            job_id = f"run_{run.id}"
             _scheduler.add_job(
                 scheduled_run,
                 trigger=trigger,
                 args=[run.id],
-                id=f"run_{run.id}",
+                id=job_id,
                 name=f"Run {run.id}: {run.run_name}",
                 replace_existing=True,
             )
+            _job_frequencies[job_id] = freq
             jobs_added += 1
 
     logger.info("scheduler_synced total_jobs=%d", jobs_added)
@@ -135,7 +150,7 @@ def stop_scheduler():
 def get_scheduler_status() -> dict:
     """Get the current scheduler status."""
     if _scheduler is None:
-        return {"running": False}
+        return {"running": False, "jobs": []}
 
     jobs = _scheduler.get_jobs()
     return {
@@ -144,6 +159,7 @@ def get_scheduler_status() -> dict:
             {
                 "id": job.id,
                 "name": job.name,
+                "frequency": _job_frequencies.get(job.id),
                 "next_run": str(job.next_run_time) if job.next_run_time else None,
             }
             for job in jobs

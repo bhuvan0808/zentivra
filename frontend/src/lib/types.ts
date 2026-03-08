@@ -19,7 +19,8 @@ export type RunStatus =
   | "running"
   | "completed"
   | "failed"
-  | "partial";
+  | "partial"
+  | "completed_empty";
 
 export interface Source {
   readonly source_id: string;
@@ -47,6 +48,12 @@ export interface SourceUpdate {
   is_enabled?: boolean;
 }
 
+export interface CrawlSchedule {
+  readonly frequency: "daily" | "weekly" | "monthly";
+  readonly time: string;
+  readonly periods: string[] | null;
+}
+
 export interface Run {
   readonly run_id: string;
   readonly run_name: string;
@@ -55,10 +62,11 @@ export interface Run {
   readonly enable_email_alert: boolean;
   readonly email_recipients: string[] | null;
   readonly sources: string[];
-  readonly crawl_frequency: string | null;
+  readonly crawl_frequency: CrawlSchedule | null;
   readonly crawl_depth: number;
   readonly keywords: string[] | null;
   readonly is_enabled: boolean;
+  readonly has_active_triggers: boolean;
   readonly created_at: string;
   readonly updated_at: string;
 }
@@ -70,7 +78,7 @@ export interface RunCreate {
   enable_email_alert?: boolean;
   email_recipients?: string[];
   sources: string[];
-  crawl_frequency?: string;
+  crawl_frequency?: CrawlSchedule;
   crawl_depth: number;
   keywords?: string[];
   trigger_on_create?: boolean;
@@ -83,7 +91,7 @@ export interface RunUpdate {
   enable_email_alert?: boolean;
   email_recipients?: string[];
   sources?: string[];
-  crawl_frequency?: string;
+  crawl_frequency?: CrawlSchedule;
   crawl_depth?: number;
   keywords?: string[];
   is_enabled?: boolean;
@@ -164,6 +172,7 @@ export interface Digest {
   readonly pdf_path: string | null;
   readonly html_path: string | null;
   readonly status: string;
+  readonly has_pdf: boolean;
   readonly created_at: string;
 }
 
@@ -186,6 +195,7 @@ export interface DetailedHealth {
 export interface SchedulerJob {
   readonly id: string;
   readonly name: string;
+  readonly frequency: string;
   readonly next_run: string;
 }
 
@@ -275,16 +285,35 @@ export interface LogPreview {
 
 // ── Dashboard ──
 
-export interface DashboardStats {
+export interface DashboardKpi {
   readonly total_findings: number;
   readonly total_sources: number;
-  readonly by_category: Record<string, number>;
-  readonly by_agent_type: Record<string, number>;
+  readonly runs_overview: {
+    readonly total_runs: number;
+    readonly enabled_runs: number;
+  };
+}
+
+export interface DashboardCharts {
   readonly confidence_distribution: {
     readonly high: number;
     readonly medium: number;
     readonly low: number;
   };
+  readonly daily_findings: Array<{
+    readonly date: string;
+    readonly count: number;
+  }>;
+  readonly confidence_trend: Array<{
+    readonly date: string;
+    readonly avg_confidence: number | null;
+  }>;
+  readonly by_category: Record<string, number>;
+  readonly by_agent_type: Record<string, number>;
+}
+
+export interface DashboardTriggers {
+  readonly trigger_status_counts: Record<string, number>;
   readonly recent_triggers: Array<{
     readonly run_trigger_id: string;
     readonly run_name: string;
@@ -293,10 +322,12 @@ export interface DashboardStats {
     readonly snapshots_count: number;
     readonly created_at: string | null;
   }>;
-  readonly findings_timeline: Array<{
-    readonly trigger_id: string;
-    readonly date: string;
-    readonly full_date: string;
+}
+
+export interface DashboardSources {
+  readonly findings_by_source: Array<{
+    readonly source_name: string;
+    readonly display_name: string;
     readonly count: number;
   }>;
 }
