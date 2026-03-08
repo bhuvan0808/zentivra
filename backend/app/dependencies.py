@@ -161,3 +161,12 @@ async def get_current_user_full(
         raise HTTPException(status_code=401, detail="Missing auth token")
 
     return await service.validate_token(token)
+
+
+# ── Workflow (stateless service, no DB dependency) ────────────────────────
+
+
+def get_workflow_service():
+    from app.services.workflow_service import WorkflowService
+
+    return WorkflowService()

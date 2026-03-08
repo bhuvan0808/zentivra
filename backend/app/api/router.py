@@ -26,6 +26,8 @@ from app.api.findings import router as findings_router
 from app.api.digests import router as digests_router
 from app.api.execution_logs import router as execution_logs_router
 from app.api.dashboard import router as dashboard_router
+from app.api.agents_api import router as agents_router
+from app.api.workflows import router as workflows_router
 
 api_router = APIRouter(prefix="/api")
 
@@ -37,3 +39,5 @@ api_router.include_router(findings_router)
 api_router.include_router(digests_router)
 api_router.include_router(execution_logs_router)
 api_router.include_router(dashboard_router)
+api_router.include_router(agents_router)
+api_router.include_router(workflows_router)

@@ -11,6 +11,8 @@ import {
   FileText,
   Radar,
   LogOut,
+  Bot,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
@@ -32,8 +34,8 @@ const NAV_ITEMS = [
   { href: "/runs", label: "Runs", icon: Play },
   { href: "/findings", label: "Findings", icon: Search },
   { href: "/digests", label: "Digests", icon: FileText },
-  // { href: "/agents", label: "Agents", icon: Bot },
-  // { href: "/oops", label: "Oops", icon: Sparkles },
+  { href: "/agents", label: "Agents", icon: Bot },
+  { href: "/oops", label: "Oops", icon: Sparkles },
 ] as const;
 
 function getInitials(name: string): string {
