@@ -1,8 +1,7 @@
-"""
-Change Detector - Content diffing and fingerprinting.
+"""Change detector — content diff detection between crawl cycles.
 
-Detects whether a page has changed since the last fetch by comparing
-content hashes. If changed, generates a human-readable diff.
+Used within the pipeline to decide whether re-summarization is needed.
+Compares content hashes and generates human-readable diffs when changed.
 """
 
 from dataclasses import dataclass
@@ -16,7 +15,18 @@ from app.utils.logger import logger
 
 @dataclass
 class ChangeResult:
-    """Result of change detection between two content versions."""
+    """Result of change detection between two content versions.
+
+    Attributes:
+        has_changed: True if content differs from previous.
+        current_hash: SHA256 hash of current content.
+        previous_hash: Hash of previous content (None on first fetch).
+        diff_text: Unified diff string if changed.
+        diff_summary: Human-readable summary (e.g., "5 lines added, 2 removed").
+        added_lines: Count of added lines in diff.
+        removed_lines: Count of removed lines in diff.
+        change_ratio: 0 = identical, 1 = completely different.
+    """
 
     has_changed: bool
     current_hash: str
@@ -72,7 +82,7 @@ class ChangeDetector:
         return text
 
     def compute_hash(self, content: str, canonicalize: bool = True) -> str:
-        """Compute SHA256 hash of content, optionally canonicalized."""
+        """Compute SHA256 hash of content. If canonicalize=True, normalizes before hashing."""
         if canonicalize:
             content = self.canonicalize(content)
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
@@ -83,16 +93,15 @@ class ChangeDetector:
         current_content: str,
         context_lines: int = 3,
     ) -> ChangeResult:
-        """
-        Compare two content versions and detect changes.
+        """Compare two content versions and detect changes.
 
         Args:
-            previous_content: Previous version (None if first fetch)
-            current_content: Current version
-            context_lines: Number of context lines in diff
+            previous_content: Previous version (None if first fetch).
+            current_content: Current version.
+            context_lines: Number of context lines in unified diff.
 
         Returns:
-            ChangeResult with diff details
+            ChangeResult with has_changed, hashes, diff_text, diff_summary, counts.
         """
         current_hash = self.compute_hash(current_content)
 
@@ -173,11 +182,15 @@ class ChangeDetector:
         min_change_ratio: float = 0.01,
         min_changed_lines: int = 2,
     ) -> bool:
-        """
-        Determine if a change is significant enough to warrant re-summarization.
+        """Determine if a change is significant enough to warrant re-summarization.
 
         Filters out trivial changes (e.g., just a timestamp update).
         First-fetch (no previous content) is always significant.
+
+        Args:
+            change_result: Result from compare().
+            min_change_ratio: Minimum change_ratio to be significant.
+            min_changed_lines: Minimum total added+removed lines.
         """
         if not change_result.has_changed:
             return False

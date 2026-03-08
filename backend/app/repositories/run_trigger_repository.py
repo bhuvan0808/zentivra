@@ -1,4 +1,10 @@
-"""Repository for RunTrigger (execution) data access."""
+"""
+Repository for RunTrigger model.
+
+RunTrigger represents an execution instance of a Run. Provides queries with
+relationship loading (selectinload) to avoid N+1 queries when accessing
+run, findings, snapshots, and digests.
+"""
 
 from typing import Sequence
 
@@ -12,12 +18,26 @@ from app.repositories.base import BaseRepository
 
 
 class RunTriggerRepository(BaseRepository[RunTrigger]):
+    """
+    Thin data-access layer for RunTrigger model.
+
+    Uses selectinload for eager loading of relationships (run, findings,
+    snapshots, digests) to avoid N+1 queries when traversing related data.
+    """
+
     uuid_column = "run_trigger_id"
 
     def __init__(self, db: AsyncSession):
         super().__init__(RunTrigger, db)
 
     async def get_by_uuid(self, uuid_str: str) -> RunTrigger | None:
+        """
+        Lookup trigger by UUID with full relationship loading.
+
+        Eager loads: run, findings, snapshots (with snapshot.source), digests.
+        selectinload is used for one-to-many/many relationships to fetch
+        related rows in separate efficient queries.
+        """
         result = await self.db.execute(
             select(RunTrigger)
             .where(RunTrigger.run_trigger_id == uuid_str)
@@ -33,6 +53,12 @@ class RunTriggerRepository(BaseRepository[RunTrigger]):
     async def get_triggers_for_run(
         self, run_id: int, *, limit: int = 50
     ) -> Sequence[RunTrigger]:
+        """
+        Fetch triggers for a run with relationship loading.
+
+        Eager loads: run, findings, snapshots, digests. Ordered by created_at
+        desc, limited to limit rows.
+        """
         result = await self.db.execute(
             select(RunTrigger)
             .where(RunTrigger.run_id == run_id)
@@ -48,9 +74,16 @@ class RunTriggerRepository(BaseRepository[RunTrigger]):
         return result.scalars().all()
 
     async def mark_previous_not_latest(self, run_id: int) -> None:
+        """
+        Mark all triggers for a run that are currently is_latest=True as False.
+
+        Used before inserting a new trigger so only the newest remains latest.
+        """
         await self.db.execute(
             update(RunTrigger)
-            .where(RunTrigger.run_id == run_id, RunTrigger.is_latest == True)  # noqa: E712
+            .where(
+                RunTrigger.run_id == run_id, RunTrigger.is_latest == True
+            )  # noqa: E712
             .values(is_latest=False)
         )
         await self.db.flush()

@@ -1,4 +1,13 @@
-"""Dashboard API - Independent endpoints for progressive tile loading."""
+"""
+Dashboard API
+=============
+URL prefix: /api/dashboard
+
+Endpoints are split into independent tiles for progressive loading. The frontend
+can fetch each tile separately (KPI, charts, triggers, sources) so the UI
+renders incrementally without waiting for a single large response.
+All endpoints require authentication.
+"""
 
 from datetime import date, datetime, timedelta, timezone
 
@@ -18,7 +27,12 @@ from app.models.source import Source
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 _ALL_STATUSES = [
-    "completed", "failed", "partial", "completed_empty", "running", "pending",
+    "completed",
+    "failed",
+    "partial",
+    "completed_empty",
+    "running",
+    "pending",
 ]
 
 
@@ -27,7 +41,12 @@ async def get_kpi(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Tiles 1-3: total findings, total sources, runs overview."""
+    """
+    GET /api/dashboard/kpi
+    Auth: Bearer token required.
+    Response: {total_findings, total_sources, runs_overview}.
+    Tile: KPI summary (findings count, sources count, runs overview).
+    """
     uid = user.id
 
     total_findings = (
@@ -69,8 +88,14 @@ async def get_charts(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Tiles 6-9, 12: confidence distribution, daily findings, confidence
-    trend, findings by category, agent performance."""
+    """
+    GET /api/dashboard/charts
+    Auth: Bearer token required.
+    Response: {confidence_distribution, daily_findings, confidence_trend,
+    by_category, by_agent_type}.
+    Tiles: Charts (confidence distribution, daily findings, confidence trend,
+    findings by category, agent performance).
+    """
     uid = user.id
 
     # ── Confidence distribution ──────────────────────────────────────────
@@ -110,7 +135,10 @@ async def get_charts(
 
     today = date.today()
     daily_findings = [
-        {"date": (today - timedelta(days=i)).isoformat(), "count": daily_map.get(today - timedelta(days=i), 0)}
+        {
+            "date": (today - timedelta(days=i)).isoformat(),
+            "count": daily_map.get(today - timedelta(days=i), 0),
+        }
         for i in range(30, -1, -1)
     ]
 
@@ -168,7 +196,12 @@ async def get_triggers(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Tiles 10, 13: trigger outcome counts and recent activity list."""
+    """
+    GET /api/dashboard/triggers
+    Auth: Bearer token required.
+    Response: {trigger_status_counts, recent_triggers}.
+    Tiles: Trigger status counts and recent activity list.
+    """
     uid = user.id
 
     # ── Trigger status counts ────────────────────────────────────────────
@@ -217,7 +250,12 @@ async def get_sources(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Tile 11: top sources ranked by total findings produced."""
+    """
+    GET /api/dashboard/sources
+    Auth: Bearer token required.
+    Response: {findings_by_source}.
+    Tile: Top sources ranked by total findings produced.
+    """
     uid = user.id
 
     result = await db.execute(

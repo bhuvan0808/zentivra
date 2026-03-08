@@ -1,4 +1,11 @@
-"""Workflow API endpoints."""
+"""
+Workflows API
+=============
+URL prefix: /api/workflows
+
+One-off analysis workflows (e.g. disruptive article report). These endpoints
+run ad-hoc pipelines outside the scheduled run/trigger model.
+"""
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -62,7 +69,11 @@ async def download_disruptive_report_pdf(
     report_id: str,
     service: WorkflowService = Depends(get_workflow_service),
 ):
-    """Download a previously generated disruptive-article PDF report."""
+    """
+    GET /api/workflows/reports/{report_id}/pdf
+    Auth: None (public download).
+    Response: FileResponse (application/pdf).
+    """
     pdf_path = service.get_disruptive_report_pdf_path(report_id)
     if not pdf_path.exists():
         raise HTTPException(status_code=404, detail="Report PDF not found")

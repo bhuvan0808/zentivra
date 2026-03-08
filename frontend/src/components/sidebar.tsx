@@ -9,8 +9,6 @@ import {
   Play,
   Search,
   FileText,
-  Bot,
-  Sparkles,
   Radar,
   LogOut,
 } from "lucide-react";

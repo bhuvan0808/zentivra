@@ -1,7 +1,8 @@
 """
-Digest model - A compiled intelligence digest.
+Digest model — PDF/HTML digest compilation record.
 
-Matches the actual DB schema: digests table.
+A digest aggregates findings from a run trigger into a downloadable report.
+Stores paths to generated PDF and HTML artifacts.
 """
 
 import uuid
@@ -14,6 +15,15 @@ from app.database import Base
 
 
 class Digest(Base):
+    """
+    Digest compilation record (table: digests).
+
+    Relationships: run_trigger (lazy=selectin); snapshot_links (lazy=selectin)
+    via DigestSnapshot — which snapshots are included in this digest.
+    Business rules: pdf_path/html_path are filesystem paths; status =
+    pending|completed|failed.
+    """
+
     __tablename__ = "digests"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -46,7 +56,6 @@ class Digest(Base):
     )
     updated_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
-    # Relationships
     run_trigger = relationship("RunTrigger", back_populates="digests", lazy="selectin")
     snapshot_links = relationship(
         "DigestSnapshot", back_populates="digest", lazy="selectin"
@@ -57,6 +66,7 @@ class Digest(Base):
 
     @property
     def run_trigger_uuid(self) -> str | None:
+        """Parent run_trigger's UUID (run_trigger_id) when relationship is loaded."""
         return (
             self.run_trigger.run_trigger_id
             if getattr(self, "run_trigger", None)

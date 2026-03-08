@@ -1,4 +1,11 @@
-"""Service layer for one-off workflows."""
+"""
+One-off workflow operations service.
+
+This module encapsulates ad-hoc workflow logic that does not persist to core
+tables: disruptive article reports, agent runs on explicit URLs, digest
+compilation, PDF rendering, and email delivery. Used for rapid analysis paths
+outside the scheduled run/trigger flow.
+"""
 
 import asyncio
 import uuid
@@ -43,7 +50,11 @@ class WorkflowService:
         """
         Generate a one-off report for a disruptive article URL and email it.
 
-        This flow does not persist to core tables; it is a rapid ad-hoc analysis path.
+        Flow: validate URL -> run selected agents in parallel -> compile digest
+        -> render PDF -> email to recipient. Does not persist to core tables.
+
+        Raises:
+            ValueError: URL must start with http:// or https://.
         """
         if not url.startswith(("http://", "https://")):
             raise ValueError("URL must start with http:// or https://")
@@ -96,11 +107,20 @@ class WorkflowService:
         }
 
     def get_disruptive_report_pdf_path(self, report_id: str) -> Path:
-        """Resolve the generated disruptive report PDF path by report ID."""
+        """
+        Resolve the generated disruptive report PDF path by report ID.
+
+        Returns deterministic path: DIGESTS_DIR/disruptive_article_{report_id}.pdf
+        """
         return DIGESTS_DIR / f"disruptive_article_{report_id}.pdf"
 
     def _normalize_disruptive_pdf_name(self, report_id: str, raw_path: str) -> str:
-        """Rename generated report to a deterministic file name for download APIs."""
+        """
+        Rename generated report to a deterministic file name for download APIs.
+
+        Moves/renames the PDF to disruptive_article_{report_id}.pdf if different.
+        Returns raw_path unchanged if source doesn't exist or isn't a PDF.
+        """
         source = Path(raw_path)
         if not source.exists() or source.suffix.lower() != ".pdf":
             return raw_path
@@ -118,7 +138,12 @@ class WorkflowService:
         agent_type: AgentType,
         url: str,
     ) -> list[dict]:
-        """Run one agent against a single explicit URL."""
+        """
+        Run one agent against a single explicit URL.
+
+        Creates a synthetic Source (no DB persistence), runs the agent, closes it.
+        Returns list of findings; exceptions are caught by caller and logged.
+        """
         agent_class = AGENT_MAP[agent_type]
         agent = agent_class()
         try:

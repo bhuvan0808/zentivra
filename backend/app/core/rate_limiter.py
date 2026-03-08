@@ -1,8 +1,7 @@
-"""
-Rate Limiter - Per-domain token bucket rate limiting.
+"""Rate limiter — per-domain request rate limiting.
 
-Ensures we respect rate limits per domain, preventing abuse and
-complying with robots.txt throttle requirements.
+Used by the fetcher to throttle requests per domain, preventing abuse
+and complying with robots.txt throttle requirements.
 """
 
 import asyncio
@@ -14,7 +13,10 @@ from app.utils.logger import logger
 
 
 class TokenBucket:
-    """Token bucket rate limiter for a single domain."""
+    """Token bucket rate limiter for a single domain.
+
+    Refills tokens at rate_rpm/60 per second; allows burst up to ~10s worth.
+    """
 
     def __init__(self, rate_rpm: int = 10):
         self.rate = rate_rpm / 60.0  # Tokens per second
@@ -24,7 +26,7 @@ class TokenBucket:
         self._lock = asyncio.Lock()
 
     async def acquire(self):
-        """Wait until a token is available, then consume one."""
+        """Wait until a token is available, then consume one. Blocks if bucket empty."""
         async with self._lock:
             now = time.monotonic()
             elapsed = now - self.last_refill
@@ -41,7 +43,10 @@ class TokenBucket:
 
 
 class RateLimiter:
-    """Manages per-domain rate limiting using token buckets."""
+    """Manages per-domain rate limiting using token buckets.
+
+    Each domain gets its own TokenBucket. acquire() blocks until a token is available.
+    """
 
     def __init__(self, default_rpm: int = 10):
         self.default_rpm = default_rpm
@@ -54,7 +59,7 @@ class RateLimiter:
         return parsed.netloc or parsed.path
 
     async def acquire(self, url: str, rpm: int | None = None):
-        """Acquire a rate limit token for the given URL's domain."""
+        """Acquire a rate limit token for the given URL's domain. Blocks if rate exceeded."""
         domain = self._get_domain(url)
         async with self._lock:
             if domain not in self._buckets:
@@ -63,9 +68,9 @@ class RateLimiter:
         await self._buckets[domain].acquire()
 
     def set_domain_rate(self, domain: str, rpm: int):
-        """Set a custom rate limit for a specific domain."""
+        """Set a custom rate limit (requests per minute) for a specific domain."""
         self._buckets[domain] = TokenBucket(rpm)
 
 
-# Singleton rate limiter
+# Singleton rate limiter used by Fetcher
 rate_limiter = RateLimiter()

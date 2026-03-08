@@ -1,4 +1,16 @@
-"""Runs API - CRUD for run configurations and trigger endpoint."""
+"""
+Runs API
+========
+URL prefix: /api/runs
+
+CRUD for run configurations and trigger endpoint. Run configurations define
+sources, crawl settings, and schedule. Triggering starts the pipeline in the
+background via _execute_run.
+
+Scheduler sync: After create, update, and delete, sync_scheduler() is called
+so the APScheduler reflects the latest run configurations (enabled/disabled,
+crawl_frequency, etc.).
+"""
 
 import traceback
 
@@ -21,6 +33,8 @@ router = APIRouter(prefix="/runs", tags=["Runs"])
 
 
 # ── CRUD (all protected) ───────────────────────────────────
+# All CRUD endpoints call sync_scheduler() after mutations so the scheduler
+# stays in sync with run config changes.
 
 
 @router.get("/", response_model=list[RunResponse])
@@ -29,7 +43,12 @@ async def list_runs(
     service: RunService = Depends(get_run_service),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """List run configurations, most recent first."""
+    """
+    GET /api/runs/
+    Auth: Bearer token required.
+    Query: limit (1-100, default 20).
+    Response: list[RunResponse].
+    """
     return await service.list_runs(user.id, limit=limit)
 
 
@@ -40,7 +59,14 @@ async def create_run(
     service: RunService = Depends(get_run_service),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Create a new run configuration. Optionally trigger immediately."""
+    """
+    POST /api/runs/
+    Auth: Bearer token required.
+    Body: RunCreate (trigger_on_create optional).
+    Response: RunCreateResponse (201). If trigger_on_create, pipeline runs in
+    background; trigger details included in response.
+    Scheduler sync: Called after create.
+    """
     run = await service.create(run_data, user.id)
     await sync_scheduler()
 
@@ -79,7 +105,11 @@ async def get_run(
     service: RunService = Depends(get_run_service),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Get a run configuration by its UUID."""
+    """
+    GET /api/runs/{run_id}
+    Auth: Bearer token required.
+    Response: RunResponse.
+    """
     return await service.get_by_uuid(run_id, user.id)
 
 
@@ -90,7 +120,13 @@ async def update_run(
     service: RunService = Depends(get_run_service),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Update a run configuration by its UUID."""
+    """
+    PUT /api/runs/{run_id}
+    Auth: Bearer token required.
+    Body: RunUpdate.
+    Response: RunResponse.
+    Scheduler sync: Called after update.
+    """
     result = await service.update(run_id, run_data, user.id)
     await sync_scheduler()
     return result
@@ -102,12 +138,19 @@ async def delete_run(
     service: RunService = Depends(get_run_service),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Delete a run configuration by its UUID."""
+    """
+    DELETE /api/runs/{run_id}
+    Auth: Bearer token required.
+    Response: 204 No Content.
+    Scheduler sync: Called after delete.
+    """
     await service.delete(run_id, user.id)
     await sync_scheduler()
 
 
 # ── Trigger ─────────────────────────────────────────────────
+# Triggering adds _execute_run as a background task. The endpoint returns 202
+# immediately; the pipeline runs asynchronously via Orchestrator.execute().
 
 
 @router.post("/{run_id}/trigger", response_model=RunTriggerResponse, status_code=202)
@@ -121,9 +164,7 @@ async def trigger_run(
     """Trigger execution of a run configuration."""
     trigger, run, options = await service.trigger(run_id, user.id, payload)
 
-    background_tasks.add_task(
-        _execute_run, trigger.id, run.id, options
-    )
+    background_tasks.add_task(_execute_run, trigger.id, run.id, options)
 
     return RunTriggerResponse(
         run_trigger_id=trigger.run_trigger_id,
@@ -133,10 +174,15 @@ async def trigger_run(
     )
 
 
-async def _execute_run(
-    run_trigger_id: int, run_id: int, options: dict | None = None
-):
-    """Background task: execute the full pipeline via the Orchestrator."""
+async def _execute_run(run_trigger_id: int, run_id: int, options: dict | None = None):
+    """
+    Background task: execute the full pipeline via the Orchestrator.
+
+    Invoked by BackgroundTasks.add_task() from the trigger endpoint. Runs
+    asynchronously after the HTTP response is sent. Orchestrator.execute()
+    performs crawl, analysis, digest generation, etc. Exceptions are logged
+    but do not affect the HTTP response.
+    """
     from app.utils.logger import logger
 
     try:
@@ -166,7 +212,12 @@ async def list_triggers_for_run(
     service: RunService = Depends(get_run_service),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """List trigger history for a run (newest first)."""
+    """
+    GET /api/runs/{run_id}/triggers
+    Auth: Bearer token required.
+    Query: limit (1-200, default 50).
+    Response: list[RunTriggerDetailResponse].
+    """
     triggers = await service.get_triggers_for_run(run_id, user.id, limit=limit)
     results = []
     for t in triggers:

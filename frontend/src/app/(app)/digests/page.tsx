@@ -1,18 +1,15 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { FileText, Download, Calendar, Eye, Inbox } from "lucide-react";
-import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { FileText, Download, Calendar, Eye, Inbox } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getDigests, getDigestPdfUrl } from "@/lib/api";
 import { motion } from "framer-motion";
 import { fmtDate } from "@/lib/formatDate";
-import type { Digest } from "@/lib/types";
+import { useDigests } from "@/hooks/use-digests";
 
 function statusVariant(status: string) {
   switch (status) {
@@ -28,53 +25,8 @@ function statusVariant(status: string) {
 }
 
 export default function DigestsPage() {
-  const [digests, setDigests] = useState<Digest[]>([]);
-  const [loading, setLoading] = useState(true);
   const router = useRouter();
-
-  const fetchDigests = useCallback(async () => {
-    const res = await getDigests(30);
-    if (res.ok) {
-      setDigests(res.data);
-    } else {
-      toast.error(res.error);
-    }
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      void fetchDigests();
-    }, 0);
-    return () => window.clearTimeout(timeoutId);
-  }, [fetchDigests]);
-
-  async function handleDownloadPdf(digestId: string) {
-    try {
-      const url = getDigestPdfUrl(digestId);
-      const token = localStorage.getItem("auth_token");
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      const res = await fetch(url, { headers });
-      if (!res.ok) {
-        const body = await res.json();
-        toast.warning(
-          typeof body.detail === "string"
-            ? body.detail
-            : "Unable to download PDF.",
-        );
-        return;
-      }
-      const blob = await res.blob();
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `zentivra_digest.pdf`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    } catch {
-      toast.error("Unable to reach the server. Please check your connection.");
-    }
-  }
+  const { digests, loading, handleDownloadPdf } = useDigests();
 
   if (loading) {
     return (

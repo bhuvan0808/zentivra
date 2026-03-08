@@ -18,8 +18,8 @@ export default function OopsPage() {
           <Sparkles className="mb-4 size-10 text-muted-foreground/50" />
           <p className="text-lg font-medium">Coming Soon</p>
           <p className="mt-1 text-sm text-muted-foreground max-w-md">
-            The disruptive article analysis workflow is being rebuilt.
-            Check back once the new pipeline is fully operational.
+            The disruptive article analysis workflow is being rebuilt. Check
+            back once the new pipeline is fully operational.
           </p>
         </CardContent>
       </Card>

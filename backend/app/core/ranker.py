@@ -1,10 +1,11 @@
-"""
-Ranker - Impact scoring for findings.
+"""Ranker — LLM-powered relevance ranking of findings.
+
+Final stage of the pipeline: fetch -> extract -> preprocess -> summarize -> dedup -> rank.
 
 Uses the spec-defined formula:
   Impact = 0.35 * Relevance + 0.25 * Novelty + 0.20 * Credibility + 0.20 * Actionability
 
-Scoring can be done via LLM-assisted evaluation or heuristic rules.
+Scoring can be done via LLM-assisted evaluation or heuristic fallback.
 """
 
 from typing import Optional
@@ -14,7 +15,7 @@ from app.utils.logger import logger
 from app.config import settings
 from app.core.summarizer import Summarizer
 
-# Default weights from spec section 14
+# Default weights from spec section 14 (Impact formula)
 DEFAULT_RELEVANCE_WEIGHT = 0.35
 DEFAULT_NOVELTY_WEIGHT = 0.25
 DEFAULT_CREDIBILITY_WEIGHT = 0.20
@@ -37,10 +38,9 @@ class Ranker:
         llm_model: Optional[str] = None,
         weights: Optional[dict] = None,
     ):
+        """Initialize with LLM toggle, optional provider/model, and impact weight overrides."""
         self.use_llm = use_llm
-        self._summarizer = (
-            Summarizer() if use_llm else None
-        )
+        self._summarizer = Summarizer() if use_llm else None
         w = weights or {}
         self.relevance_weight = w.get("relevance", DEFAULT_RELEVANCE_WEIGHT)
         self.novelty_weight = w.get("novelty", DEFAULT_NOVELTY_WEIGHT)
@@ -54,11 +54,13 @@ class Ranker:
         credibility: float,
         actionability: float,
     ) -> float:
-        """
-        Compute impact score using the spec formula.
+        """Compute impact score using the spec formula.
 
-        All inputs should be on 0-10 scale.
-        Returns score on 0-1 scale.
+        Args:
+            relevance, novelty, credibility, actionability: Scores on 0-10 scale.
+
+        Returns:
+            Impact score on 0-1 scale, clamped and rounded to 3 decimals.
         """
         score = (
             self.relevance_weight * relevance
@@ -70,11 +72,11 @@ class Ranker:
         return round(min(max(score, 0.0), 1.0), 3)
 
     async def rank_findings(self, findings: list[dict]) -> list[dict]:
-        """
-        Score and rank a list of findings.
+        """Score and rank a list of findings.
 
-        If LLM is available, uses LLM-assisted scoring.
-        Otherwise, falls back to heuristic scoring.
+        Uses LLM for top N (max_llm_rankings_per_run), heuristic for rest.
+        Mutates findings in place with *_score fields; sorts by impact_score descending.
+        Returns the same list (sorted).
         """
         max_llm_rankings = max(0, int(settings.max_llm_rankings_per_run))
         llm_enabled = bool(self.use_llm and self._summarizer and max_llm_rankings > 0)
@@ -130,9 +132,10 @@ class Ranker:
         return findings
 
     def _apply_heuristic_scores(self, finding: dict):
-        """
-        Apply heuristic scoring based on category and confidence.
-        Used as fallback when LLM is not available.
+        """Apply heuristic scoring based on category and confidence.
+
+        Used as fallback when LLM is not available. Mutates finding with
+        relevance_score, novelty_score, credibility_score, actionability_score, impact_score.
         """
         confidence = finding.get("confidence", 0.5)
         category = finding.get("category", "other")

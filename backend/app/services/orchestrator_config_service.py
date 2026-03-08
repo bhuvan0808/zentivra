@@ -1,4 +1,10 @@
-"""Service layer for orchestrator configuration."""
+"""
+Single-row orchestrator configuration management service.
+
+This module encapsulates business logic for the global orchestrator config:
+a single row in the database holding JSON config. Supports get, update,
+and update-from-file (YAML/JSON) with validation via OrchestratorConfigSchema.
+"""
 
 import json
 from typing import Optional
@@ -13,45 +19,72 @@ from app.schemas.orchestrator_config import (
 
 
 class OrchestratorConfigService:
+    """
+    Orchestrates OrchestratorConfigRepository for single-row config management.
+
+    Applies validation via OrchestratorConfigSchema, raises HTTPExceptions for
+    invalid file formats or malformed content. Returns defaults when no row exists.
+    """
+
     def __init__(self, repo: OrchestratorConfigRepository):
         self.repo = repo
 
     async def get_config(self) -> OrchestratorConfigResponse:
-        """Return the current config with defaults filled in."""
+        """
+        Return the current config with defaults filled in.
+
+        If no row exists or config is null, returns empty schema with updated_at=None.
+        """
         row = await self.repo.get()
         if row and row.config:
             schema = OrchestratorConfigSchema.model_validate(row.config)
-            return OrchestratorConfigResponse(
-                config=schema, updated_at=row.updated_at
-            )
+            return OrchestratorConfigResponse(config=schema, updated_at=row.updated_at)
         return OrchestratorConfigResponse(
             config=OrchestratorConfigSchema(), updated_at=None
         )
 
     async def get_config_schema(self) -> OrchestratorConfigSchema:
-        """Return just the validated schema (used by orchestrator internally)."""
+        """
+        Return just the validated schema (used by orchestrator internally).
+
+        Returns empty OrchestratorConfigSchema() when no config row exists.
+        """
         row = await self.repo.get()
         if row and row.config:
             return OrchestratorConfigSchema.model_validate(row.config)
         return OrchestratorConfigSchema()
 
     async def update_config(self, data: dict) -> OrchestratorConfigResponse:
-        """Validate and upsert the config from a dict."""
+        """
+        Validate and upsert the config from a dict.
+
+        Validates via OrchestratorConfigSchema; raises on invalid data.
+        Upserts the single config row and returns the response.
+        """
         schema = OrchestratorConfigSchema.model_validate(data)
         config_dict = schema.model_dump(mode="json")
         row = await self.repo.upsert(config_dict)
-        return OrchestratorConfigResponse(
-            config=schema, updated_at=row.updated_at
-        )
+        return OrchestratorConfigResponse(config=schema, updated_at=row.updated_at)
 
     async def update_from_file(
         self, content: str, file_format: str
     ) -> OrchestratorConfigResponse:
-        """Parse a YAML or JSON string and upsert."""
+        """
+        Parse a YAML or JSON string and upsert the config.
+
+        Supports .json, .yaml, .yml. Raises HTTPException 422 for invalid
+        content or unsupported format.
+        """
         data = self._parse_file_content(content, file_format)
         return await self.update_config(data)
 
     def _parse_file_content(self, content: str, file_format: str) -> dict:
+        """
+        Parse YAML or JSON content into a dict.
+
+        Raises:
+            HTTPException 422: Invalid JSON/YAML or unsupported format.
+        """
         file_format = file_format.lower().strip(".")
 
         if file_format in ("json",):
@@ -75,9 +108,7 @@ class OrchestratorConfigService:
                     )
                 return data
             except yaml.YAMLError as e:
-                raise HTTPException(
-                    status_code=422, detail=f"Invalid YAML: {e}"
-                )
+                raise HTTPException(status_code=422, detail=f"Invalid YAML: {e}")
 
         raise HTTPException(
             status_code=422,

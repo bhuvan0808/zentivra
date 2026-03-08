@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import {
@@ -17,7 +16,6 @@ import {
   Eye,
   FileText,
 } from "lucide-react";
-import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { fmtDate, fmtDateTime, fmtTimeSec } from "@/lib/formatDate";
 import { PageHeader } from "@/components/page-header";
@@ -43,6 +41,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Table,
   TableBody,
   TableCell,
@@ -50,38 +54,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  getRuns,
-  deleteRun,
-  triggerRunById,
-  updateRun,
-  getRunTriggers,
-  getTriggerFindings,
-  getTriggerSnapshots,
-  getTriggerLogs,
-  getTriggerLogPreview,
-  downloadTriggerLog,
-  getDigestPdfUrl,
-} from "@/lib/api";
+import { downloadTriggerLog } from "@/lib/api";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type {
-  Run,
-  RunTrigger,
-  Finding,
-  Snapshot,
-  AgentLogSummary,
-  LogPreview,
-  CrawlSchedule,
-} from "@/lib/types";
-
-const TERMINAL_STATUSES = new Set(["completed", "failed", "partial", "completed_empty"]);
-function isTerminalStatus(status: string): boolean {
-  return TERMINAL_STATUSES.has(status);
-}
+import type { Run, CrawlSchedule } from "@/lib/types";
+import { useRuns } from "@/hooks/use-runs";
 
 function utcToLocal(utcTime: string): string {
   const [h, m] = utcTime.split(":").map(Number);
@@ -92,7 +72,8 @@ function utcToLocal(utcTime: string): string {
 
 function ScheduleTooltip({ schedule }: { schedule: CrawlSchedule }) {
   const localTime = utcToLocal(schedule.time);
-  const freq = schedule.frequency.charAt(0).toUpperCase() + schedule.frequency.slice(1);
+  const freq =
+    schedule.frequency.charAt(0).toUpperCase() + schedule.frequency.slice(1);
 
   return (
     <Tooltip delayDuration={200}>
@@ -101,7 +82,12 @@ function ScheduleTooltip({ schedule }: { schedule: CrawlSchedule }) {
           {freq}
         </span>
       </TooltipTrigger>
-      <TooltipContent side="bottom" align="start" className="bg-popover text-popover-foreground border shadow-md text-xs space-y-1 p-2.5" hideArrow>
+      <TooltipContent
+        side="bottom"
+        align="start"
+        className="bg-popover text-popover-foreground border shadow-md text-xs space-y-1 p-2.5"
+        hideArrow
+      >
         <div className="flex items-center gap-2">
           <span className="text-muted-foreground">Frequency</span>
           <span className="font-medium">{freq}</span>
@@ -126,207 +112,35 @@ function ScheduleTooltip({ schedule }: { schedule: CrawlSchedule }) {
 }
 
 export default function RunsPage() {
-  const [runs, setRuns] = useState<Run[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [triggeringId, setTriggeringId] = useState<string | null>(null);
-  const [deletingRun, setDeletingRun] = useState<Run | null>(null);
-  const [triggerHistory, setTriggerHistory] = useState<
-    Record<string, RunTrigger[]>
-  >({});
-  const [loadingTriggers, setLoadingTriggers] = useState<Set<string>>(
-    new Set(),
-  );
-  const [editingRun, setEditingRun] = useState<Run | null>(null);
-  const [selectedTrigger, setSelectedTrigger] = useState<RunTrigger | null>(
-    null,
-  );
-  const [triggerFindings, setTriggerFindings] = useState<Finding[]>([]);
-  const [triggerSnapshots, setTriggerSnapshots] = useState<Snapshot[]>([]);
-  const [loadingDetail, setLoadingDetail] = useState(false);
-
-  // Execution logs state
-  const [agentLogs, setAgentLogs] = useState<AgentLogSummary[]>([]);
-  const [logPreviews, setLogPreviews] = useState<Record<string, LogPreview>>(
-    {},
-  );
-  const [loadingLogPreview, setLoadingLogPreview] = useState<string | null>(
-    null,
-  );
-  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
-  const [expandedRunIds, setExpandedRunIds] = useState<string[]>([]);
-  const triggerHistoryRef = useRef(triggerHistory);
-  useEffect(() => {
-    triggerHistoryRef.current = triggerHistory;
-  }, [triggerHistory]);
-
-  const fetchRuns = useCallback(async () => {
-    const res = await getRuns(50);
-    if (res.ok) setRuns(res.data);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    void fetchRuns();
-  }, [fetchRuns]);
-
-  // Layer 1: Runs-level polling — refresh the runs list every 15s
-  useEffect(() => {
-    const id = setInterval(() => void fetchRuns(), 15_000);
-    return () => clearInterval(id);
-  }, [fetchRuns]);
-
-  // Layer 2: Per-run trigger polling — poll triggers every 5s for expanded runs with active triggers
-  useEffect(() => {
-    const intervals = new Map<string, NodeJS.Timeout>();
-
-    for (const runId of expandedRunIds) {
-      const id = setInterval(async () => {
-        const triggers = triggerHistoryRef.current[runId];
-        if (!triggers) return;
-        if (!triggers.some((t) => !isTerminalStatus(t.status))) {
-          clearInterval(intervals.get(runId)!);
-          intervals.delete(runId);
-          return;
-        }
-        const res = await getRunTriggers(runId, 10);
-        if (res.ok) {
-          setTriggerHistory((prev) => ({ ...prev, [runId]: res.data }));
-        }
-      }, 5_000);
-      intervals.set(runId, id);
-    }
-
-    return () => {
-      for (const [, id] of intervals) clearInterval(id);
-    };
-  }, [expandedRunIds]);
-
-  async function handleTrigger(run: Run) {
-    if (!run.is_enabled) {
-      toast.error("Cannot trigger a disabled run.");
-      return;
-    }
-    setTriggeringId(run.run_id);
-    const res = await triggerRunById(run.run_id);
-    setTriggeringId(null);
-    if (res.ok) {
-      toast.success(res.data.message);
-      const triggersRes = await getRunTriggers(run.run_id, 10);
-      if (triggersRes.ok) {
-        setTriggerHistory((prev) => ({ ...prev, [run.run_id]: triggersRes.data }));
-      }
-      setExpandedRunIds((prev) =>
-        prev.includes(run.run_id) ? prev : [...prev, run.run_id],
-      );
-    } else {
-      toast.error(res.error);
-    }
-  }
-
-  async function handleDelete() {
-    if (!deletingRun) return;
-    const res = await deleteRun(deletingRun.run_id);
-    if (res.ok) {
-      toast.success("Run deleted.");
-      setRuns((prev) => prev.filter((r) => r.run_id !== deletingRun.run_id));
-    } else {
-      toast.error(res.error);
-    }
-    setDeletingRun(null);
-  }
-
-  async function handleToggleEnabled(run: Run) {
-    const res = await updateRun(run.run_id, { is_enabled: !run.is_enabled });
-    if (res.ok) {
-      setRuns((prev) =>
-        prev.map((r) => (r.run_id === run.run_id ? res.data : r)),
-      );
-      toast.success(res.data.is_enabled ? "Run enabled." : "Run disabled.");
-    } else {
-      toast.error(res.error);
-    }
-  }
-
-  async function handleAccordionChange(values: string[]) {
-    setExpandedRunIds(values);
-    for (const runId of values) {
-      if (loadingTriggers.has(runId)) continue;
-      setLoadingTriggers((prev) => new Set(prev).add(runId));
-      const res = await getRunTriggers(runId, 10);
-      if (res.ok) {
-        setTriggerHistory((prev) => ({ ...prev, [runId]: res.data }));
-      }
-      setLoadingTriggers((prev) => {
-        const next = new Set(prev);
-        next.delete(runId);
-        return next;
-      });
-    }
-  }
-
-  async function handleTriggerDetail(trigger: RunTrigger) {
-    setSelectedTrigger(trigger);
-    setLoadingDetail(true);
-    setAgentLogs([]);
-    setLogPreviews({});
-    setExpandedAgent(null);
-    const [findingsRes, snapshotsRes, logsRes] = await Promise.all([
-      getTriggerFindings(trigger.run_trigger_id, 20),
-      getTriggerSnapshots(trigger.run_trigger_id),
-      getTriggerLogs(trigger.run_trigger_id),
-    ]);
-    if (findingsRes.ok) setTriggerFindings(findingsRes.data);
-    if (snapshotsRes.ok) setTriggerSnapshots(snapshotsRes.data);
-    if (logsRes.ok) setAgentLogs(logsRes.data);
-    setLoadingDetail(false);
-  }
-
-  async function handleToggleLogPreview(agentName: string) {
-    if (expandedAgent === agentName) {
-      setExpandedAgent(null);
-      return;
-    }
-    setExpandedAgent(agentName);
-    if (logPreviews[agentName]) return;
-    if (!selectedTrigger) return;
-    setLoadingLogPreview(agentName);
-    const res = await getTriggerLogPreview(
-      selectedTrigger.run_trigger_id,
-      agentName,
-      10,
-    );
-    if (res.ok) {
-      setLogPreviews((prev) => ({ ...prev, [agentName]: res.data }));
-    }
-    setLoadingLogPreview(null);
-  }
-
-  async function handleDownloadDigestPdf(digestId: string) {
-    try {
-      const url = getDigestPdfUrl(digestId);
-      const token = localStorage.getItem("auth_token");
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      const res = await fetch(url, { headers });
-      if (!res.ok) {
-        const body = await res.json();
-        toast.warning(
-          typeof body.detail === "string"
-            ? body.detail
-            : "Unable to download PDF.",
-        );
-        return;
-      }
-      const blob = await res.blob();
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `zentivra_digest.pdf`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    } catch {
-      toast.error("Unable to reach the server. Please check your connection.");
-    }
-  }
+  const {
+    runs,
+    setRuns,
+    loading,
+    triggeringId,
+    deletingRun,
+    setDeletingRun,
+    triggerHistory,
+    loadingTriggers,
+    editingRun,
+    setEditingRun,
+    selectedTrigger,
+    setSelectedTrigger,
+    triggerFindings,
+    triggerSnapshots,
+    loadingDetail,
+    agentLogs,
+    logPreviews,
+    loadingLogPreview,
+    expandedAgent,
+    expandedRunIds,
+    handleTrigger,
+    handleDelete,
+    handleToggleEnabled,
+    handleAccordionChange,
+    handleTriggerDetail,
+    handleToggleLogPreview,
+    handleDownloadDigestPdf,
+  } = useRuns();
 
   if (loading) {
     return (
@@ -591,11 +405,6 @@ export default function RunsPage() {
         onOpenChange={(open) => {
           if (!open) {
             setSelectedTrigger(null);
-            setTriggerFindings([]);
-            setTriggerSnapshots([]);
-            setAgentLogs([]);
-            setLogPreviews({});
-            setExpandedAgent(null);
           }
         }}
       >
@@ -975,13 +784,6 @@ export default function RunsPage() {
   );
 }
 
-// Inline edit dialog - will be refined in run-edit-flow todo
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -994,8 +796,7 @@ import {
 } from "@/components/ui/select";
 import { CircleHelp, Check, X, Search } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
-import { getSources } from "@/lib/api";
-import type { Source, AgentType } from "@/lib/types";
+import type { AgentType } from "@/lib/types";
 
 const AGENT_TYPE_LABELS: Record<AgentType, string> = {
   competitor: "Competitor",
@@ -1004,45 +805,7 @@ const AGENT_TYPE_LABELS: Record<AgentType, string> = {
   hf_benchmark: "HF Benchmark",
 };
 
-const WEEK_DAYS = [
-  { key: "mon", label: "M" },
-  { key: "tue", label: "T" },
-  { key: "wed", label: "W" },
-  { key: "thu", label: "T" },
-  { key: "fri", label: "F" },
-  { key: "sat", label: "S" },
-  { key: "sun", label: "S" },
-] as const;
-
-function parseCrawlSchedule(schedule: CrawlSchedule | null) {
-  const freq = schedule?.frequency ?? "daily";
-  const time = schedule?.time ? utcToLocalInput(schedule.time) : "09:00";
-  let days = new Set(["mon", "wed", "fri"]);
-  let dates = new Set([1]);
-
-  if (freq === "weekly" && schedule?.periods) {
-    days = new Set(schedule.periods);
-  }
-  if (freq === "monthly" && schedule?.periods) {
-    dates = new Set(schedule.periods.map(Number).filter(Boolean));
-  }
-
-  return { freq, time, days, dates };
-}
-
-function utcToLocalInput(utcTime: string): string {
-  const [h, m] = utcTime.split(":").map(Number);
-  const now = new Date();
-  now.setUTCHours(h, m, 0, 0);
-  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-}
-
-function localToUtc(localTime: string): string {
-  const [h, m] = localTime.split(":").map(Number);
-  const now = new Date();
-  now.setHours(h, m, 0, 0);
-  return `${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}`;
-}
+import { useRunEdit } from "@/hooks/use-run-edit";
 
 function RunEditDialog({
   run,
@@ -1053,134 +816,45 @@ function RunEditDialog({
   onClose: () => void;
   onSaved: (updated: Run) => void;
 }) {
-  const parsed = parseCrawlSchedule(run.crawl_frequency);
-
-  const [runName, setRunName] = useState(run.run_name);
-  const [description, setDescription] = useState(run.description ?? "");
-  const [enableEmailAlert, setEnableEmailAlert] = useState(
-    run.enable_email_alert,
-  );
-  const [recipients, setRecipients] = useState<string[]>(
-    run.email_recipients ?? [],
-  );
-  const [recipientInput, setRecipientInput] = useState("");
-  const [crawlFrequency, setCrawlFrequency] = useState(parsed.freq);
-  const [scheduleTime, setScheduleTime] = useState(parsed.time);
-  const [scheduleDays, setScheduleDays] = useState<Set<string>>(parsed.days);
-  const [scheduleDates, setScheduleDates] = useState<Set<number>>(parsed.dates);
-  const [crawlDepth, setCrawlDepth] = useState(run.crawl_depth);
-  const [keywords, setKeywords] = useState<string[]>(run.keywords ?? []);
-  const [keywordInput, setKeywordInput] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const [allSources, setAllSources] = useState<Source[]>([]);
-  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(
-    new Set(run.sources ?? []),
-  );
-  const [sourceSearch, setSourceSearch] = useState("");
-  const [agentFilter, setAgentFilter] = useState("all");
-  const [loadingSources, setLoadingSources] = useState(true);
-
-  useEffect(() => {
-    getSources().then((res) => {
-      if (res.ok) setAllSources(res.data);
-      setLoadingSources(false);
-    });
-  }, []);
-
-  const filteredSources = allSources.filter((s) => {
-    const matchSearch =
-      !sourceSearch ||
-      s.display_name.toLowerCase().includes(sourceSearch.toLowerCase()) ||
-      s.source_name.toLowerCase().includes(sourceSearch.toLowerCase());
-    const matchAgent = agentFilter === "all" || s.agent_type === agentFilter;
-    return matchSearch && matchAgent;
-  });
-
-  function toggleSource(id: string) {
-    setSelectedSourceIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function toggleDay(day: string) {
-    setScheduleDays((prev) => {
-      const next = new Set(prev);
-      if (next.has(day)) next.delete(day);
-      else next.add(day);
-      return next;
-    });
-  }
-
-  function toggleDate(date: number) {
-    setScheduleDates((prev) => {
-      const next = new Set(prev);
-      if (next.has(date)) next.delete(date);
-      else next.add(date);
-      return next;
-    });
-  }
-
-  function buildSchedule(): CrawlSchedule {
-    const utcTime = localToUtc(scheduleTime);
-    let periods: string[] | null = null;
-    if (crawlFrequency === "weekly") {
-      periods = Array.from(scheduleDays);
-    } else if (crawlFrequency === "monthly") {
-      periods = Array.from(scheduleDates)
-        .sort((a, b) => a - b)
-        .map(String);
-    }
-    return {
-      frequency: crawlFrequency as CrawlSchedule["frequency"],
-      time: utcTime,
-      periods,
-    };
-  }
-
-  function addRecipient() {
-    const email = recipientInput.trim();
-    const emailRegex = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
-    if (email && emailRegex.test(email) && !recipients.includes(email)) {
-      setRecipients((prev) => [...prev, email]);
-      setRecipientInput("");
-    } else if (email && !emailRegex.test(email)) {
-      toast.error("Invalid email format");
-    }
-  }
-
-  function removeRecipient(email: string) {
-    setRecipients((prev) => prev.filter((e) => e !== email));
-  }
-
-  async function handleSave() {
-    if (!runName.trim()) {
-      toast.error("Run name is required.");
-      return;
-    }
-    setSaving(true);
-    const res = await updateRun(run.run_id, {
-      run_name: runName.trim(),
-      description: description.trim() || undefined,
-      enable_email_alert: enableEmailAlert,
-      email_recipients:
-        enableEmailAlert && recipients.length > 0 ? recipients : undefined,
-      crawl_frequency: buildSchedule(),
-      crawl_depth: crawlDepth,
-      keywords: keywords.length > 0 ? keywords : [],
-      sources: Array.from(selectedSourceIds),
-    });
-    setSaving(false);
-    if (res.ok) {
-      toast.success("Run updated.");
-      onSaved(res.data);
-    } else {
-      toast.error(res.error);
-    }
-  }
+  const {
+    runName,
+    setRunName,
+    description,
+    setDescription,
+    enableEmailAlert,
+    setEnableEmailAlert,
+    recipients,
+    recipientInput,
+    setRecipientInput,
+    crawlFrequency,
+    setCrawlFrequency,
+    scheduleTime,
+    setScheduleTime,
+    scheduleDays,
+    scheduleDates,
+    crawlDepth,
+    setCrawlDepth,
+    keywords,
+    keywordInput,
+    setKeywordInput,
+    saving,
+    selectedSourceIds,
+    sourceSearch,
+    setSourceSearch,
+    agentFilter,
+    setAgentFilter,
+    loadingSources,
+    filteredSources,
+    toggleSource,
+    toggleDay,
+    toggleDate,
+    addRecipient,
+    removeRecipient,
+    handleSave,
+    addKeyword,
+    removeKeyword,
+    WEEK_DAYS,
+  } = useRunEdit(run, onClose, onSaved);
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()} modal={true}>
@@ -1267,7 +941,12 @@ function RunEditDialog({
           {/* Crawl Frequency */}
           <div className="space-y-2.5">
             <Label>Crawl Frequency</Label>
-            <Select value={crawlFrequency} onValueChange={(v) => setCrawlFrequency(v as CrawlSchedule["frequency"])}>
+            <Select
+              value={crawlFrequency}
+              onValueChange={(v) =>
+                setCrawlFrequency(v as CrawlSchedule["frequency"])
+              }
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -1399,23 +1078,11 @@ function RunEditDialog({
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
-                    const kw = keywordInput.trim();
-                    if (kw && !keywords.includes(kw))
-                      setKeywords((p) => [...p, kw]);
-                    setKeywordInput("");
+                    addKeyword();
                   }
                 }}
               />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const kw = keywordInput.trim();
-                  if (kw && !keywords.includes(kw))
-                    setKeywords((p) => [...p, kw]);
-                  setKeywordInput("");
-                }}
-              >
+              <Button variant="outline" size="sm" onClick={addKeyword}>
                 Add
               </Button>
             </div>
@@ -1428,9 +1095,7 @@ function RunEditDialog({
                   >
                     {kw}
                     <button
-                      onClick={() =>
-                        setKeywords((p) => p.filter((k) => k !== kw))
-                      }
+                      onClick={() => removeKeyword(kw)}
                       className="text-muted-foreground hover:text-foreground"
                     >
                       <X className="size-3" />

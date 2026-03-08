@@ -1,4 +1,13 @@
-"""Pydantic schemas for Run API requests and responses."""
+"""
+Pydantic schemas for Run API requests and responses.
+
+Defines schemas for run configuration and trigger management:
+- POST /runs: RunCreate -> RunCreateResponse
+- PATCH /runs/{run_id}: RunUpdate -> RunResponse
+- GET /runs, GET /runs/{run_id}: RunResponse
+- POST /runs/{run_id}/trigger: RunTriggerRequest -> RunTriggerResponse
+- GET /runs/{run_id}/triggers: RunTriggerDetailResponse
+"""
 
 from datetime import datetime
 from typing import Annotated, Any, Literal, Optional, Union
@@ -9,7 +18,12 @@ from app.models.run import RunStatus
 
 
 class CrawlFrequency(BaseModel):
-    """Structured schedule for a run."""
+    """
+    Structured schedule for when a run should execute.
+
+    Used within RunCreate/RunUpdate/RunResponse. Supports daily, weekly, or monthly
+    cadence with optional time (UTC) and period specifications.
+    """
 
     frequency: Literal["daily", "weekly", "monthly"]
     time: str = Field(..., pattern=r"^\d{2}:\d{2}$", description="HH:MM in UTC")
@@ -41,13 +55,14 @@ def _coerce_crawl_frequency(v: Any) -> Any:
     return v
 
 
+# Type alias: crawl_frequency accepts CrawlFrequency or legacy string format
 FlexibleCrawlFrequency = Annotated[
     Optional[CrawlFrequency], BeforeValidator(_coerce_crawl_frequency)
 ]
 
 
 class RunCreate(BaseModel):
-    """Schema for creating a run configuration."""
+    """Request body for creating a run configuration (POST /runs)."""
 
     run_name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
@@ -65,7 +80,7 @@ class RunCreate(BaseModel):
 
 
 class RunUpdate(BaseModel):
-    """Schema for updating a run configuration (all fields optional)."""
+    """Request body for updating a run configuration (PATCH /runs/{run_id}). All fields optional."""
 
     run_name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
@@ -80,7 +95,7 @@ class RunUpdate(BaseModel):
 
 
 class RunResponse(BaseModel):
-    """Schema for run config API responses. Exposes UUID, never integer PK."""
+    """Response schema for run endpoints. Exposes run_id and source_ids as UUIDs, never integer PKs."""
 
     run_id: str
     run_name: str
@@ -101,7 +116,12 @@ class RunResponse(BaseModel):
 
 
 class RunCreateResponse(RunResponse):
-    """Response for run creation. Includes optional trigger info when trigger_on_create=true."""
+    """
+    Response for run creation (POST /runs).
+
+    Extends RunResponse with optional trigger field. When trigger_on_create=true
+    was set on creation, trigger contains the RunTriggerResponse for the initial run.
+    """
 
     trigger: Optional["RunTriggerResponse"] = None
 
@@ -110,7 +130,7 @@ class RunCreateResponse(RunResponse):
 
 
 class RunTriggerRequest(BaseModel):
-    """Optional payload when triggering a run."""
+    """Optional request body when triggering a run (POST /runs/{run_id}/trigger)."""
 
     trigger_method: str = Field(
         default="manual", description="manual / scheduler / api"
@@ -128,7 +148,7 @@ class RunTriggerRequest(BaseModel):
 
 
 class RunTriggerResponse(BaseModel):
-    """Response after triggering a run."""
+    """Response after successfully triggering a run (POST /runs/{run_id}/trigger)."""
 
     run_trigger_id: str
     run_id: str
@@ -137,7 +157,7 @@ class RunTriggerResponse(BaseModel):
 
 
 class RunTriggerDetailResponse(BaseModel):
-    """Detailed trigger execution info for trigger history."""
+    """Response for trigger history (GET /runs/{run_id}/triggers). Detailed execution info per trigger."""
 
     run_trigger_id: str
     run_id: Optional[str] = None

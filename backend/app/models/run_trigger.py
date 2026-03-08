@@ -1,3 +1,10 @@
+"""
+RunTrigger model — individual execution of a run.
+
+Each trigger represents one crawl/analysis pass. Created by schedule (cron) or
+manual start. Produces findings, snapshots, and optionally digests.
+"""
+
 import uuid
 from datetime import datetime, timezone
 
@@ -8,6 +15,14 @@ from app.database import Base
 
 
 class RunTrigger(Base):
+    """
+    Run execution trigger (table: run_triggers).
+
+    Relationships: run (parent); findings, snapshots, digests (lazy=selectin).
+    Business rules: trigger_method = "cron"|"manual"|etc; is_latest marks the
+    most recent trigger for a run (used for "latest run" queries).
+    """
+
     __tablename__ = "run_triggers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

@@ -1,4 +1,11 @@
-"""Sources API - CRUD operations for data sources."""
+"""
+Sources API
+===========
+URL prefix: /api/sources
+
+CRUD operations for data sources (URLs, feeds, etc.) used in run configurations.
+All endpoints require authentication.
+"""
 
 from typing import Optional
 
@@ -19,7 +26,12 @@ async def list_sources(
     service: SourceService = Depends(get_source_service),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """List all sources, optionally filtered by agent type or enabled status."""
+    """
+    GET /api/sources/
+    Auth: Bearer token required.
+    Query: agent_type (optional), enabled (optional).
+    Response: list[SourceResponse].
+    """
     return await service.list_sources(user.id, agent_type=agent_type, enabled=enabled)
 
 
@@ -39,7 +51,11 @@ async def get_source(
     service: SourceService = Depends(get_source_service),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Get a source by its UUID."""
+    """
+    GET /api/sources/{source_id}
+    Auth: Bearer token required.
+    Response: SourceResponse.
+    """
     return await service.get_by_uuid(source_id, user.id)
 
 
@@ -50,7 +66,12 @@ async def update_source(
     service: SourceService = Depends(get_source_service),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Update a source by its UUID."""
+    """
+    PUT /api/sources/{source_id}
+    Auth: Bearer token required.
+    Body: SourceUpdate.
+    Response: SourceResponse.
+    """
     return await service.update(source_id, source_data, user.id)
 
 
@@ -60,5 +81,9 @@ async def delete_source(
     service: SourceService = Depends(get_source_service),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Delete a source by its UUID."""
+    """
+    DELETE /api/sources/{source_id}
+    Auth: Bearer token required.
+    Response: 204 No Content.
+    """
     await service.delete(source_id, user.id)

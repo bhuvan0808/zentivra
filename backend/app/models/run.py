@@ -1,3 +1,10 @@
+"""
+Run model — crawl configuration and scheduling.
+
+A run defines which sources to crawl, how often, and what outputs to produce
+(PDF digest, email alerts). Triggers are individual executions of a run.
+"""
+
 import uuid
 from datetime import datetime, timezone
 from enum import Enum as PyEnum
@@ -10,6 +17,8 @@ from app.database import Base
 
 
 class RunStatus(str, PyEnum):
+    """Status of a run trigger execution."""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -18,6 +27,14 @@ class RunStatus(str, PyEnum):
 
 
 class Run(Base):
+    """
+    Run configuration (table: runs).
+
+    Relationships: triggers (lazy=selectin) — individual executions of this run.
+    Business rules: sources is a JSON list of source_ids to crawl; crawl_frequency
+    defines schedule (e.g. cron); crawl_depth limits link-following depth.
+    """
+
     __tablename__ = "runs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -39,6 +56,10 @@ class Run(Base):
     crawl_depth: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     keywords: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
+    # sources: list of source_ids to include in this run
+    # crawl_frequency: schedule config (e.g. {"type": "cron", "expression": "0 9 * * *"})
+    # keywords: optional filter terms for relevance
+
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -58,6 +79,7 @@ class Run(Base):
 
     @property
     def has_active_triggers(self) -> bool:
+        """True if any trigger is pending or running (execution in progress)."""
         if not self.triggers:
             return False
         return any(t.status in ("pending", "running") for t in self.triggers)
