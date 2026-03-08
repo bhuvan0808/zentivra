@@ -13,6 +13,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { LiquidBlob } from "@/components/liquid-blob";
 import { login } from "@/lib/api";
 
+import { PublicGuard } from "@/components/public-guard";
+
 function SignInForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -147,9 +149,9 @@ export default function SignInPage() {
         <div className="absolute top-1/3 right-[10%] h-100 w-100 rounded-full bg-violet-500/15 blur-[100px]" />
         <div className="absolute bottom-[15%] left-[15%] h-88 w-88 rounded-full bg-purple-500/15 blur-[110px]" />
       </div>
-      <Suspense>
+      <PublicGuard>
         <SignInForm />
-      </Suspense>
+      </PublicGuard>
     </div>
   );
 }

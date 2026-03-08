@@ -34,8 +34,8 @@ const NAV_ITEMS = [
   { href: "/runs", label: "Runs", icon: Play },
   { href: "/findings", label: "Findings", icon: Search },
   { href: "/digests", label: "Digests", icon: FileText },
-  { href: "/agents", label: "Agents", icon: Bot },
-  { href: "/oops", label: "Oops", icon: Sparkles },
+  // { href: "/agents", label: "Agents", icon: Bot },
+  // { href: "/oops", label: "Oops", icon: Sparkles },
 ] as const;
 
 function getInitials(name: string): string {
@@ -101,7 +101,7 @@ export function Sidebar() {
             <BurgerMorph open={open} />
           </button>
           <div className="hidden lg:flex items-center gap-2">
-            <Radar className="size-5 text-sidebar-primary" />
+            <Radar className="size-6 text-sidebar-foreground" />
           </div>
           <span className="text-lg font-bold tracking-tight">Zentivra</span>
 

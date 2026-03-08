@@ -41,8 +41,9 @@ class Settings(BaseSettings):
     )
 
     # ── Database ──────────────────────────────────────────────────────────
-    database_url: str = "sqlite+aiosqlite:///./zentivra.db"
+    database_url: str = "postgresql+asyncpg://localhost:5432/zentivra"
     database_echo: bool = False
+    database_ca_cert_path: str | None = None
 
     # ── LLM Providers ────────────────────────────────────────────────────
     llm_provider: Optional[str] = (
@@ -86,8 +87,8 @@ class Settings(BaseSettings):
         "http://localhost:3000,http://127.0.0.1:3000,https://zentivra.vercel.app/"
     )
 
-    # ── Auth / Redis ──────────────────────────────────────────────────────
-    redis_url: str = "redis://localhost:6379/0"
+    # ── Auth / Valkey ─────────────────────────────────────────────────────
+    valkey_url: str = "rediss://localhost:6379/0"
     auth_token_ttl_hours: int = 2
 
     # ── App Settings ──────────────────────────────────────────────────────

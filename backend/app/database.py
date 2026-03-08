@@ -1,40 +1,35 @@
 """
 Zentivra Database Module.
 
-Async SQLAlchemy engine and session factory.
-Supports both SQLite (development) and PostgreSQL (production).
+Async SQLAlchemy engine and session factory for PostgreSQL.
 """
 
-from sqlalchemy import event
+import ssl
+from pathlib import Path
+
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
-from app.config import settings
+from app.config import settings, BASE_DIR
 
+connect_args: dict = {}
+if settings.database_ca_cert_path:
+    cert_path = Path(settings.database_ca_cert_path)
+    if not cert_path.is_absolute():
+        cert_path = BASE_DIR / cert_path
+    ctx = ssl.create_default_context(cafile=str(cert_path))
+    connect_args["ssl"] = ctx
+else:
+    connect_args["ssl"] = "require"
 
-# Create async engine
-is_sqlite = "sqlite" in settings.database_url
 engine = create_async_engine(
     settings.database_url,
     echo=settings.database_echo,
-    # For SQLite, we need check_same_thread=False
-    connect_args=(
-        {"check_same_thread": False, "timeout": 60}
-        if is_sqlite
-        else {}
-    ),
+    connect_args=connect_args,
+    pool_size=5,
+    max_overflow=10,
 )
 
-if is_sqlite:
-    @event.listens_for(engine.sync_engine, "connect")
-    def _set_sqlite_pragmas(dbapi_connection, connection_record):  # type: ignore[no-redef]
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL;")
-        cursor.execute("PRAGMA busy_timeout=60000;")
-        cursor.execute("PRAGMA synchronous=NORMAL;")
-        cursor.close()
-
-# Session factory
 async_session = async_sessionmaker(
     engine,
     class_=AsyncSession,
@@ -44,6 +39,7 @@ async_session = async_sessionmaker(
 
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy models."""
+
     pass
 
 
@@ -61,50 +57,9 @@ async def get_db() -> AsyncSession:
 
 
 async def init_db():
-    """Create all tables. Used in development with SQLite."""
+    """Create all tables (standalone utility, not called on startup)."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-
-
-# TODO: Remove this seeding logic before production deployment
-async def seed_sources_if_empty():
-    """Insert default sources from backup JSON when the table is empty."""
-    import json
-    import os
-
-    from sqlalchemy import func, select
-
-    from app.models.source import Source
-
-    backup_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "sources_backup.json")
-    if not os.path.exists(backup_path):
-        return
-
-    async with async_session() as session:
-        count = await session.scalar(select(func.count()).select_from(Source))
-        if count and count > 0:
-            return
-
-        with open(backup_path, "r", encoding="utf-8") as f:
-            records = json.load(f)
-
-        for rec in records:
-            source = Source(
-                id=rec["id"],
-                agent_type=rec["agent_type"].lower(),
-                name=rec["name"],
-                url=rec["url"],
-                feed_url=rec.get("feed_url"),
-                css_selectors=rec.get("css_selectors"),
-                keywords=rec.get("keywords"),
-                rate_limit_rpm=rec.get("rate_limit_rpm", 10),
-                crawl_depth=rec.get("crawl_depth", 1),
-                enabled=bool(rec.get("enabled", 1)),
-            )
-            session.add(source)
-
-        await session.commit()
-# END TODO
 
 
 async def close_db():

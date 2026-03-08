@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import {
@@ -63,6 +63,11 @@ import {
   downloadTriggerLog,
   getDigestPdfUrl,
 } from "@/lib/api";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type {
   Run,
   RunTrigger,
@@ -70,7 +75,55 @@ import type {
   Snapshot,
   AgentLogSummary,
   LogPreview,
+  CrawlSchedule,
 } from "@/lib/types";
+
+const TERMINAL_STATUSES = new Set(["completed", "failed", "partial", "completed_empty"]);
+function isTerminalStatus(status: string): boolean {
+  return TERMINAL_STATUSES.has(status);
+}
+
+function utcToLocal(utcTime: string): string {
+  const [h, m] = utcTime.split(":").map(Number);
+  const now = new Date();
+  now.setUTCHours(h, m, 0, 0);
+  return now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function ScheduleTooltip({ schedule }: { schedule: CrawlSchedule }) {
+  const localTime = utcToLocal(schedule.time);
+  const freq = schedule.frequency.charAt(0).toUpperCase() + schedule.frequency.slice(1);
+
+  return (
+    <Tooltip delayDuration={200}>
+      <TooltipTrigger asChild>
+        <span className="text-xs font-medium text-foreground underline decoration-dotted underline-offset-4 decoration-muted-foreground/60 cursor-default">
+          {freq}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" align="start" className="bg-popover text-popover-foreground border shadow-md text-xs space-y-1 p-2.5" hideArrow>
+        <div className="flex items-center gap-2">
+          <span className="text-muted-foreground">Frequency</span>
+          <span className="font-medium">{freq}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-muted-foreground">Time</span>
+          <span className="font-medium">{localTime}</span>
+        </div>
+        {schedule.periods && schedule.periods.length > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">
+              {schedule.frequency === "weekly" ? "Days" : "Dates"}
+            </span>
+            <span className="font-medium capitalize">
+              {schedule.periods.join(", ")}
+            </span>
+          </div>
+        )}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 export default function RunsPage() {
   const [runs, setRuns] = useState<Run[]>([]);
@@ -100,6 +153,11 @@ export default function RunsPage() {
     null,
   );
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+  const [expandedRunIds, setExpandedRunIds] = useState<string[]>([]);
+  const triggerHistoryRef = useRef(triggerHistory);
+  useEffect(() => {
+    triggerHistoryRef.current = triggerHistory;
+  }, [triggerHistory]);
 
   const fetchRuns = useCallback(async () => {
     const res = await getRuns(50);
@@ -111,6 +169,38 @@ export default function RunsPage() {
     void fetchRuns();
   }, [fetchRuns]);
 
+  // Layer 1: Runs-level polling — refresh the runs list every 15s
+  useEffect(() => {
+    const id = setInterval(() => void fetchRuns(), 15_000);
+    return () => clearInterval(id);
+  }, [fetchRuns]);
+
+  // Layer 2: Per-run trigger polling — poll triggers every 5s for expanded runs with active triggers
+  useEffect(() => {
+    const intervals = new Map<string, NodeJS.Timeout>();
+
+    for (const runId of expandedRunIds) {
+      const id = setInterval(async () => {
+        const triggers = triggerHistoryRef.current[runId];
+        if (!triggers) return;
+        if (!triggers.some((t) => !isTerminalStatus(t.status))) {
+          clearInterval(intervals.get(runId)!);
+          intervals.delete(runId);
+          return;
+        }
+        const res = await getRunTriggers(runId, 10);
+        if (res.ok) {
+          setTriggerHistory((prev) => ({ ...prev, [runId]: res.data }));
+        }
+      }, 5_000);
+      intervals.set(runId, id);
+    }
+
+    return () => {
+      for (const [, id] of intervals) clearInterval(id);
+    };
+  }, [expandedRunIds]);
+
   async function handleTrigger(run: Run) {
     if (!run.is_enabled) {
       toast.error("Cannot trigger a disabled run.");
@@ -121,6 +211,13 @@ export default function RunsPage() {
     setTriggeringId(null);
     if (res.ok) {
       toast.success(res.data.message);
+      const triggersRes = await getRunTriggers(run.run_id, 10);
+      if (triggersRes.ok) {
+        setTriggerHistory((prev) => ({ ...prev, [run.run_id]: triggersRes.data }));
+      }
+      setExpandedRunIds((prev) =>
+        prev.includes(run.run_id) ? prev : [...prev, run.run_id],
+      );
     } else {
       toast.error(res.error);
     }
@@ -151,8 +248,9 @@ export default function RunsPage() {
   }
 
   async function handleAccordionChange(values: string[]) {
+    setExpandedRunIds(values);
     for (const runId of values) {
-      if (triggerHistory[runId] || loadingTriggers.has(runId)) continue;
+      if (loadingTriggers.has(runId)) continue;
       setLoadingTriggers((prev) => new Set(prev).add(runId));
       const res = await getRunTriggers(runId, 10);
       if (res.ok) {
@@ -275,6 +373,7 @@ export default function RunsPage() {
       ) : (
         <Accordion
           type="multiple"
+          value={expandedRunIds}
           onValueChange={handleAccordionChange}
           className="space-y-3"
         >
@@ -306,12 +405,26 @@ export default function RunsPage() {
                           >
                             {run.is_enabled ? "Active" : "Disabled"}
                           </StatusBadge>
+                          {run.has_active_triggers && (
+                            <span className="inline-flex items-center gap-1.5 text-xs text-warning">
+                              <span className="relative flex size-2">
+                                <span className="absolute inline-flex size-full animate-ping rounded-full bg-warning opacity-75" />
+                                <span className="relative inline-flex size-2 rounded-full bg-warning" />
+                              </span>
+                              <span className="hidden sm:inline">Running</span>
+                            </span>
+                          )}
                         </div>
-                        <p className="mt-0.5 text-xs text-muted-foreground truncate">
-                          {run.sources?.length ?? 0} sources &middot; depth{" "}
-                          {run.crawl_depth} &middot;{" "}
-                          {run.crawl_frequency ?? "manual"} &middot;{" "}
-                          {fmtDate(run.created_at)}
+                        <p className="mt-1.5 text-xs text-muted-foreground truncate flex items-center gap-1">
+                          <span>{run.sources?.length ?? 0} sources</span>
+                          <span>&middot;</span>
+                          {run.crawl_frequency ? (
+                            <ScheduleTooltip schedule={run.crawl_frequency} />
+                          ) : (
+                            <span>Manual</span>
+                          )}
+                          <span>&middot;</span>
+                          <span>{fmtDate(run.created_at)}</span>
                         </p>
                       </div>
                     </AccordionTrigger>
@@ -879,11 +992,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { CircleHelp, Check, X, Search } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { getSources } from "@/lib/api";
@@ -906,21 +1014,34 @@ const WEEK_DAYS = [
   { key: "sun", label: "S" },
 ] as const;
 
-function parseEncodedFrequency(raw: string | null) {
-  const parts = (raw ?? "daily").split("|");
-  const freq = parts[0] || "daily";
-  const time = parts[1] || "09:00";
+function parseCrawlSchedule(schedule: CrawlSchedule | null) {
+  const freq = schedule?.frequency ?? "daily";
+  const time = schedule?.time ? utcToLocalInput(schedule.time) : "09:00";
   let days = new Set(["mon", "wed", "fri"]);
   let dates = new Set([1]);
 
-  if (freq === "weekly" && parts[2]) {
-    days = new Set(parts[2].split(",").filter(Boolean));
+  if (freq === "weekly" && schedule?.periods) {
+    days = new Set(schedule.periods);
   }
-  if (freq === "monthly" && parts[2]) {
-    dates = new Set(parts[2].split(",").map(Number).filter(Boolean));
+  if (freq === "monthly" && schedule?.periods) {
+    dates = new Set(schedule.periods.map(Number).filter(Boolean));
   }
 
   return { freq, time, days, dates };
+}
+
+function utcToLocalInput(utcTime: string): string {
+  const [h, m] = utcTime.split(":").map(Number);
+  const now = new Date();
+  now.setUTCHours(h, m, 0, 0);
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
+
+function localToUtc(localTime: string): string {
+  const [h, m] = localTime.split(":").map(Number);
+  const now = new Date();
+  now.setHours(h, m, 0, 0);
+  return `${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}`;
 }
 
 function RunEditDialog({
@@ -932,7 +1053,7 @@ function RunEditDialog({
   onClose: () => void;
   onSaved: (updated: Run) => void;
 }) {
-  const parsed = parseEncodedFrequency(run.crawl_frequency);
+  const parsed = parseCrawlSchedule(run.crawl_frequency);
 
   const [runName, setRunName] = useState(run.run_name);
   const [description, setDescription] = useState(run.description ?? "");
@@ -1003,18 +1124,21 @@ function RunEditDialog({
     });
   }
 
-  function encodeFrequency(): string {
+  function buildSchedule(): CrawlSchedule {
+    const utcTime = localToUtc(scheduleTime);
+    let periods: string[] | null = null;
     if (crawlFrequency === "weekly") {
-      const days = Array.from(scheduleDays).join(",");
-      return `weekly|${scheduleTime}|${days}`;
-    }
-    if (crawlFrequency === "monthly") {
-      const dates = Array.from(scheduleDates)
+      periods = Array.from(scheduleDays);
+    } else if (crawlFrequency === "monthly") {
+      periods = Array.from(scheduleDates)
         .sort((a, b) => a - b)
-        .join(",");
-      return `monthly|${scheduleTime}|${dates}`;
+        .map(String);
     }
-    return `daily|${scheduleTime}`;
+    return {
+      frequency: crawlFrequency as CrawlSchedule["frequency"],
+      time: utcTime,
+      periods,
+    };
   }
 
   function addRecipient() {
@@ -1044,9 +1168,9 @@ function RunEditDialog({
       enable_email_alert: enableEmailAlert,
       email_recipients:
         enableEmailAlert && recipients.length > 0 ? recipients : undefined,
-      crawl_frequency: encodeFrequency(),
+      crawl_frequency: buildSchedule(),
       crawl_depth: crawlDepth,
-      keywords: keywords.length > 0 ? keywords : undefined,
+      keywords: keywords.length > 0 ? keywords : [],
       sources: Array.from(selectedSourceIds),
     });
     setSaving(false);
@@ -1143,7 +1267,7 @@ function RunEditDialog({
           {/* Crawl Frequency */}
           <div className="space-y-2.5">
             <Label>Crawl Frequency</Label>
-            <Select value={crawlFrequency} onValueChange={setCrawlFrequency}>
+            <Select value={crawlFrequency} onValueChange={(v) => setCrawlFrequency(v as CrawlSchedule["frequency"])}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>

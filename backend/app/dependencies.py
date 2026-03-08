@@ -1,5 +1,7 @@
 """FastAPI dependency injection chain: db -> repository -> service."""
 
+from dataclasses import dataclass
+
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +19,12 @@ from app.services.run_service import RunService
 from app.services.finding_service import FindingService
 from app.services.digest_service import DigestService
 from app.services.auth_service import AuthService
+
+
+@dataclass
+class CurrentUser:
+    id: int        # users.id (PK) -- used as FK in data tables
+    user_id: str   # users.user_id (UUID) -- external identifier
 
 
 # ── Source ──────────────────────────────────────────────
@@ -101,8 +109,26 @@ def get_auth_service(
 async def get_current_user(
     authorization: str = Header(..., alias="Authorization"),
     service: AuthService = Depends(get_auth_service),
+) -> CurrentUser:
+    """Extract Bearer token and return lightweight CurrentUser (no DB hit on cache hit)."""
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401, detail="Invalid authorization header format"
+        )
+
+    token = authorization[7:]
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing auth token")
+
+    user = await service.validate_token(token)
+    return CurrentUser(id=user.id, user_id=user.user_id)
+
+
+async def get_current_user_full(
+    authorization: str = Header(..., alias="Authorization"),
+    service: AuthService = Depends(get_auth_service),
 ) -> User:
-    """Extract Bearer token from Authorization header and validate it."""
+    """Extract Bearer token and return the full User model (for /me endpoint)."""
     if not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=401, detail="Invalid authorization header format"

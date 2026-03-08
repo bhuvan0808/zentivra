@@ -13,22 +13,15 @@ function isValidUrl(value: string): boolean {
 }
 
 export function validateSourceForm(data: {
-  source_name: string;
   display_name: string;
   url: string;
 }): ValidationError[] {
   const errors: ValidationError[] = [];
 
-  if (!data.source_name.trim()) {
-    errors.push({ field: "source_name", message: "Source name is required." });
-  } else if (data.source_name.length > 100) {
-    errors.push({ field: "source_name", message: "Source name must be 100 characters or fewer." });
-  }
-
   if (!data.display_name.trim()) {
-    errors.push({ field: "display_name", message: "Display name is required." });
+    errors.push({ field: "display_name", message: "Source name is required." });
   } else if (data.display_name.length > 255) {
-    errors.push({ field: "display_name", message: "Display name must be 255 characters or fewer." });
+    errors.push({ field: "display_name", message: "Source name must be 255 characters or fewer." });
   }
 
   if (!data.url.trim()) {
@@ -38,4 +31,12 @@ export function validateSourceForm(data: {
   }
 
   return errors;
+}
+
+export function toSlug(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }

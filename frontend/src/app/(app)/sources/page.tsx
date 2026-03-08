@@ -50,7 +50,7 @@ import {
   updateSource,
   deleteSource,
 } from "@/lib/api";
-import { validateSourceForm, type ValidationError } from "@/lib/validation";
+import { validateSourceForm, toSlug, type ValidationError } from "@/lib/validation";
 import { AnimatedRow } from "@/components/animated-row";
 import type { Source, SourceCreate, AgentType } from "@/lib/types";
 
@@ -62,7 +62,6 @@ const AGENT_TYPE_OPTIONS: { value: AgentType; label: string }[] = [
 ];
 
 const EMPTY_FORM = {
-  source_name: "",
   display_name: "",
   agent_type: "competitor" as AgentType,
   url: "",
@@ -111,7 +110,6 @@ export default function SourcesPage() {
   function openEdit(source: Source) {
     setEditingSource(source);
     setForm({
-      source_name: source.source_name,
       display_name: source.display_name,
       agent_type: source.agent_type,
       url: source.url,
@@ -123,7 +121,6 @@ export default function SourcesPage() {
 
   async function handleSave() {
     const validationErrors = validateSourceForm({
-      source_name: form.source_name,
       display_name: form.display_name,
       url: form.url,
     });
@@ -134,10 +131,11 @@ export default function SourcesPage() {
     }
 
     setSaving(true);
+    const slug = toSlug(form.display_name);
 
     if (editingSource) {
       const res = await updateSource(editingSource.source_id, {
-        source_name: form.source_name,
+        source_name: slug,
         display_name: form.display_name,
         agent_type: form.agent_type,
         url: form.url,
@@ -153,7 +151,7 @@ export default function SourcesPage() {
       }
     } else {
       const payload: SourceCreate = {
-        source_name: form.source_name,
+        source_name: slug,
         display_name: form.display_name,
         agent_type: form.agent_type,
         url: form.url,
@@ -340,22 +338,7 @@ export default function SourcesPage() {
 
           <div className="grid gap-6 py-2 sm:grid-cols-2">
             <div className="space-y-2.5">
-              <Label htmlFor="source_name">Source Name (slug)</Label>
-              <Input
-                id="source_name"
-                value={form.source_name}
-                onChange={(e) =>
-                  setForm({ ...form, source_name: e.target.value })
-                }
-                placeholder="e.g. openai_blog"
-              />
-              {fieldError("source_name") && (
-                <p className="field-error">{fieldError("source_name")}</p>
-              )}
-            </div>
-
-            <div className="space-y-2.5">
-              <Label htmlFor="display_name">Display Name</Label>
+              <Label htmlFor="display_name">Source Name</Label>
               <Input
                 id="display_name"
                 value={form.display_name}
@@ -363,6 +346,7 @@ export default function SourcesPage() {
                   setForm({ ...form, display_name: e.target.value })
                 }
                 placeholder="e.g. OpenAI Blog"
+                autoFocus
               />
               {fieldError("display_name") && (
                 <p className="field-error">{fieldError("display_name")}</p>
@@ -377,7 +361,7 @@ export default function SourcesPage() {
                   setForm({ ...form, agent_type: v as AgentType })
                 }
               >
-                <SelectTrigger id="agent_type">
+                <SelectTrigger id="agent_type" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -390,7 +374,7 @@ export default function SourcesPage() {
               </Select>
             </div>
 
-            <div className="space-y-2.5">
+            <div className="space-y-2.5 sm:col-span-2">
               <Label htmlFor="url">URL</Label>
               <Input
                 id="url"

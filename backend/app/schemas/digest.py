@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 
 class DigestResponse(BaseModel):
@@ -18,5 +18,10 @@ class DigestResponse(BaseModel):
     html_path: Optional[str] = None
     status: str
     created_at: datetime
+
+    @computed_field
+    @property
+    def has_pdf(self) -> bool:
+        return bool(self.pdf_path)
 
     model_config = {"from_attributes": True, "populate_by_name": True}

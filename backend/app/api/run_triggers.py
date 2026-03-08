@@ -4,9 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import CurrentUser, get_current_user
 from app.models.run_trigger import RunTrigger
-from app.models.user import User
 from app.repositories.run_trigger_repository import RunTriggerRepository
 from app.schemas.finding import FindingResponse
 from app.schemas.run import RunTriggerDetailResponse
@@ -15,14 +14,17 @@ from app.schemas.snapshot import SnapshotResponse
 router = APIRouter(
     prefix="/run-triggers",
     tags=["Run Triggers"],
-    dependencies=[Depends(get_current_user)],
 )
 
 
-async def _get_trigger(trigger_id: str, db: AsyncSession) -> RunTrigger:
+async def _get_trigger(
+    trigger_id: str, db: AsyncSession, user: CurrentUser
+) -> RunTrigger:
     repo = RunTriggerRepository(db)
     trigger = await repo.get_by_uuid(trigger_id)
     if not trigger:
+        raise HTTPException(status_code=404, detail="Run trigger not found")
+    if trigger.run and trigger.run.user_id != user.id:
         raise HTTPException(status_code=404, detail="Run trigger not found")
     return trigger
 
@@ -31,9 +33,10 @@ async def _get_trigger(trigger_id: str, db: AsyncSession) -> RunTrigger:
 async def get_trigger(
     run_trigger_id: str,
     db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
 ):
     """Get a single trigger execution by UUID."""
-    trigger = await _get_trigger(run_trigger_id, db)
+    trigger = await _get_trigger(run_trigger_id, db, user)
     digest = trigger.digests[0] if trigger.digests else None
     return RunTriggerDetailResponse(
         run_trigger_id=trigger.run_trigger_id,
@@ -55,9 +58,10 @@ async def list_trigger_findings(
     run_trigger_id: str,
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
 ):
     """List findings produced by a specific trigger execution."""
-    trigger = await _get_trigger(run_trigger_id, db)
+    trigger = await _get_trigger(run_trigger_id, db, user)
     findings = (trigger.findings or [])[:limit]
     return [
         FindingResponse(
@@ -78,9 +82,10 @@ async def list_trigger_findings(
 async def list_trigger_snapshots(
     run_trigger_id: str,
     db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
 ):
     """List snapshots (per-source summaries) for a trigger execution."""
-    trigger = await _get_trigger(run_trigger_id, db)
+    trigger = await _get_trigger(run_trigger_id, db, user)
     snapshots = trigger.snapshots or []
     return [
         SnapshotResponse(

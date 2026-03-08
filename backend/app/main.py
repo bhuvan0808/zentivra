@@ -7,8 +7,6 @@ Run with:
     uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 """
 
-import time
-
 from app.utils.logger import logger
 from contextlib import asynccontextmanager
 
@@ -18,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.database import init_db, close_db, seed_sources_if_empty
+from app.database import close_db
 from app.api.router import api_router
 
 
@@ -28,39 +26,28 @@ async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────────
     logger.info("zentivra_startup env=%s", settings.app_env.value)
 
-    # Initialize database tables (creates them if using SQLite)
-    await init_db()
-    logger.info("database_initialized url=%s...", settings.database_url[:30])
+    logger.info("database_configured url=%s...", settings.database_url[:30])
 
-    # TODO: Remove seed call before production deployment
-    await seed_sources_if_empty()
-    # END TODO
+    from app.core.valkey_client import valkey_client
 
-    # Connect to Redis for session caching (graceful fallback if unavailable)
-    from app.core.redis_client import redis_client
+    await valkey_client.connect()
 
-    await redis_client.connect()
-
-    # Log LLM provider status
     logger.info(
         "llm_provider provider=%s configured=%s",
         settings.active_llm_provider,
         settings.active_llm_provider != "none",
     )
 
-    # Log email status
     logger.info(
         "email_service configured=%s recipients=%d",
         settings.has_email_configured,
         len(settings.email_recipient_list),
     )
 
-    # Start the daily scheduler
     from app.scheduler.scheduler import start_scheduler
 
     try:
-        start_scheduler()
-        logger.info("scheduler_started")
+        await start_scheduler()
     except Exception as e:
         logger.warning("scheduler_start_failed error=%s", str(e))
 
@@ -70,12 +57,11 @@ async def lifespan(app: FastAPI):
     from app.scheduler.scheduler import stop_scheduler
 
     stop_scheduler()
-    await redis_client.close()
+    await valkey_client.close()
     await close_db()
     logger.info("zentivra_shutdown")
 
 
-# Create FastAPI app
 app = FastAPI(
     title="Zentivra - Frontier AI Radar",
     description=(
@@ -86,7 +72,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware (allow frontend to connect)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -95,7 +80,6 @@ app.add_middleware(
     allow_credentials=True,
 )
 
-# Include API routes
 app.include_router(api_router)
 
 
