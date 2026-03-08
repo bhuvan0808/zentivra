@@ -2,11 +2,13 @@
 
 from typing import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.source import AgentType, Source
 from app.repositories.base import BaseRepository
+
+_SHARED_USER_ID = 0
 
 
 class SourceRepository(BaseRepository[Source]):
@@ -23,7 +25,7 @@ class SourceRepository(BaseRepository[Source]):
     ) -> Sequence[Source]:
         query = (
             select(Source)
-            .where(Source.user_id == user_id)
+            .where(or_(Source.user_id == user_id, Source.user_id == _SHARED_USER_ID))
             .order_by(Source.created_at.desc())
         )
         if agent_type:
@@ -36,6 +38,8 @@ class SourceRepository(BaseRepository[Source]):
     async def get_by_uuid(self, uuid_str: str, user_id: int | None = None) -> Source | None:
         query = select(Source).where(Source.source_id == uuid_str)
         if user_id is not None:
-            query = query.where(Source.user_id == user_id)
+            query = query.where(
+                or_(Source.user_id == user_id, Source.user_id == _SHARED_USER_ID)
+            )
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
