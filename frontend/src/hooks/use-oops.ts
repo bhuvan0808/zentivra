@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import {
   submitOopsReport,
   getOopsReportPdfUrl,
+  getReportHistory,
 } from "@/lib/oops-api";
-import type { OopsResponse } from "@/lib/oops-api";
+import type { OopsResponse, OopsReportSummary } from "@/lib/oops-api";
 
 export interface UseOopsReturn {
   url: string;
@@ -16,9 +17,12 @@ export interface UseOopsReturn {
   submitting: boolean;
   result: OopsResponse | null;
   error: string | null;
+  history: OopsReportSummary[];
+  historyLoading: boolean;
   handleSubmit: () => Promise<void>;
   handleReset: () => void;
   handleDownloadPdf: () => void;
+  handleDownloadHistoryPdf: (reportId: string) => void;
 }
 
 /**
@@ -37,6 +41,21 @@ export function useOops(): UseOopsReturn {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<OopsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<OopsReportSummary[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const fetchHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    const res = await getReportHistory();
+    if (res.ok) {
+      setHistory(res.data);
+    }
+    setHistoryLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void fetchHistory();
+  }, [fetchHistory]);
 
   async function handleSubmit() {
     if (!url.trim()) {
@@ -63,6 +82,8 @@ export function useOops(): UseOopsReturn {
     if (res.ok) {
       setResult(res.data);
       toast.success(res.data.message);
+      // Refresh history after new report
+      void fetchHistory();
     } else {
       setError(res.error);
       toast.error(res.error);
@@ -83,6 +104,11 @@ export function useOops(): UseOopsReturn {
     window.open(pdfUrl, "_blank");
   }
 
+  function handleDownloadHistoryPdf(reportId: string) {
+    const pdfUrl = getOopsReportPdfUrl(reportId);
+    window.open(pdfUrl, "_blank");
+  }
+
   return {
     url,
     setUrl,
@@ -93,8 +119,11 @@ export function useOops(): UseOopsReturn {
     submitting,
     result,
     error,
+    history,
+    historyLoading,
     handleSubmit,
     handleReset,
     handleDownloadPdf,
+    handleDownloadHistoryPdf,
   };
 }

@@ -9,7 +9,7 @@ import type { ApiResult } from "./types";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
-export interface AgentLatestLog {
+export interface AgentTriggerInfo {
   readonly trigger_id: string;
   readonly trigger_status: string;
   readonly created_at: string | null;
@@ -21,7 +21,7 @@ export interface AgentInfo {
   readonly description: string;
   readonly status: "running" | "idle";
   readonly sources_count: number;
-  readonly latest_log: AgentLatestLog | null;
+  readonly recent_triggers: AgentTriggerInfo[];
 }
 
 export interface AgentLogEntry {
@@ -51,7 +51,7 @@ export interface AgentSource {
 
 // ── Request helper ───────────────────────────────────────────────────────
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
 
 function authHeaders(): Record<string, string> {
   if (typeof window === "undefined") return {};

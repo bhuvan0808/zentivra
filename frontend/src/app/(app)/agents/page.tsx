@@ -4,9 +4,8 @@ import {
   Activity,
   RefreshCw,
   ExternalLink,
-  Eye,
   ScrollText,
-  Globe,
+  ChevronDown,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,11 +15,11 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { useAgents } from "@/hooks/use-agents";
 
@@ -51,21 +50,52 @@ function formatTs(ts: string): string {
   }
 }
 
+function formatDate(iso: string | null): string {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function statusDot(agent: { status: "running" | "idle"; recent_triggers: unknown[] }): string {
+  if (agent.status === "running") return "bg-green-500 animate-pulse";
+  if (agent.recent_triggers.length > 0) return "bg-green-500";
+  return "bg-red-400";
+}
+
+function statusLabel(agent: { status: "running" | "idle"; recent_triggers: unknown[] }): {
+  text: string;
+  className: string;
+} {
+  if (agent.status === "running") {
+    return { text: "Running", className: "bg-green-500/15 text-green-600 border-0" };
+  }
+  if (agent.recent_triggers.length > 0) {
+    return { text: "Completed", className: "bg-green-500/15 text-green-600 border-0" };
+  }
+  return { text: "Offline", className: "bg-red-500/15 text-red-500 border-0" };
+}
+
 export default function AgentsPage() {
   const {
     agents,
     loading,
     selectedAgent,
-    activeTab,
-    setActiveTab,
     logs,
     logsLoading,
-    logsTrigger,
+    selectedTrigger,
     totalLogLines,
-    sources,
-    sourcesLoading,
     selectAgentLogs,
-    selectAgentSources,
+    fetchLogsForTrigger,
+    openCrawlSources,
     refreshLogs,
   } = useAgents();
 
@@ -78,22 +108,16 @@ export default function AgentsPage() {
         description="Agent overview, live monitoring, and crawl sources."
       />
 
-      {/* Agent cards grid */}
-      {loading ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-[160px] rounded-xl" />
-          ))}
-        </div>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {agents.map((agent) => (
+      {/* Agent cards — always visible (4 static cards with live data overlay) */}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {agents.map((agent) => {
+          const badge = statusLabel(agent);
+          return (
             <Card
               key={agent.key}
               className={cn(
                 "cursor-pointer transition-shadow hover:shadow-md",
-                selectedAgent === agent.key &&
-                  "ring-2 ring-primary shadow-md",
+                selectedAgent === agent.key && "ring-2 ring-primary shadow-md",
               )}
               onClick={() => selectAgentLogs(agent.key)}
             >
@@ -101,13 +125,10 @@ export default function AgentsPage() {
                 {/* Header row */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    {/* Status dot */}
                     <span
                       className={cn(
                         "inline-block size-2.5 rounded-full",
-                        agent.status === "running"
-                          ? "bg-green-500 animate-pulse"
-                          : "bg-muted-foreground/30",
+                        statusDot(agent),
                       )}
                     />
                     <h3 className="text-sm font-semibold">{agent.label}</h3>
@@ -121,16 +142,18 @@ export default function AgentsPage() {
                 </p>
 
                 {/* Stats row */}
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary" className="text-[10px]">
-                    {agent.sources_count}{" "}
-                    {agent.sources_count === 1 ? "source" : "sources"}
-                  </Badge>
-                  {agent.status === "running" && (
-                    <Badge className="bg-green-500/15 text-green-600 text-[10px] border-0">
-                      Running
+                <div className="flex items-center gap-2 flex-wrap">
+                  {loading ? (
+                    <Skeleton className="h-4 w-16 rounded" />
+                  ) : (
+                    <Badge variant="secondary" className="text-[10px]">
+                      {agent.sources_count}{" "}
+                      {agent.sources_count === 1 ? "source" : "sources"}
                     </Badge>
                   )}
+                  <Badge className={cn("text-[10px]", badge.className)}>
+                    {badge.text}
+                  </Badge>
                 </div>
 
                 {/* Action buttons */}
@@ -153,20 +176,20 @@ export default function AgentsPage() {
                     className="h-7 text-xs flex-1"
                     onClick={(e) => {
                       e.stopPropagation();
-                      selectAgentSources(agent.key);
+                      openCrawlSources(agent.key);
                     }}
                   >
-                    <Eye className="mr-1.5 size-3" />
+                    <ExternalLink className="mr-1.5 size-3" />
                     View Crawl
                   </Button>
                 </div>
               </CardContent>
             </Card>
-          ))}
-        </div>
-      )}
+          );
+        })}
+      </div>
 
-      {/* Detail panel for selected agent */}
+      {/* Logs panel for selected agent */}
       {selectedAgent && selected && (
         <>
           <Separator className="my-6" />
@@ -179,9 +202,7 @@ export default function AgentsPage() {
                   <span
                     className={cn(
                       "inline-block size-2.5 rounded-full",
-                      selected.status === "running"
-                        ? "bg-green-500 animate-pulse"
-                        : "bg-muted-foreground/30",
+                      statusDot(selected),
                     )}
                   />
                   <h3 className="text-sm font-semibold">{selected.label}</h3>
@@ -191,7 +212,55 @@ export default function AgentsPage() {
                     </Badge>
                   )}
                 </div>
-                {activeTab === "logs" && (
+
+                <div className="flex items-center gap-2">
+                  {/* Run selector dropdown */}
+                  {selected.recent_triggers.length > 0 && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                        >
+                          Run:{" "}
+                          {selectedTrigger
+                            ? selectedTrigger.trigger_id.slice(0, 8)
+                            : "latest"}
+                          <ChevronDown className="ml-1.5 size-3" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-56">
+                        {selected.recent_triggers.map((t) => (
+                          <DropdownMenuItem
+                            key={t.trigger_id}
+                            className={cn(
+                              "text-xs font-mono cursor-pointer",
+                              selectedTrigger?.trigger_id === t.trigger_id &&
+                                "bg-accent",
+                            )}
+                            onClick={() =>
+                              fetchLogsForTrigger(selectedAgent, t.trigger_id)
+                            }
+                          >
+                            <span className="flex-1">
+                              {t.trigger_id.slice(0, 8)}
+                            </span>
+                            <Badge
+                              variant="secondary"
+                              className="text-[9px] ml-2"
+                            >
+                              {t.trigger_status}
+                            </Badge>
+                            <span className="text-muted-foreground ml-2">
+                              {formatDate(t.created_at)}
+                            </span>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+
                   <Button
                     variant="ghost"
                     size="sm"
@@ -207,146 +276,65 @@ export default function AgentsPage() {
                     />
                     Refresh
                   </Button>
-                )}
+                </div>
               </div>
 
-              <Tabs
-                value={activeTab}
-                onValueChange={(v) => {
-                  const tab = v as "logs" | "sources";
-                  setActiveTab(tab);
-                  if (tab === "sources") {
-                    selectAgentSources(selectedAgent);
-                  } else {
-                    selectAgentLogs(selectedAgent);
-                  }
-                }}
-              >
-                <TabsList className="mb-3">
-                  <TabsTrigger value="logs" className="text-xs">
-                    <ScrollText className="mr-1.5 size-3" />
-                    Live Logs
-                  </TabsTrigger>
-                  <TabsTrigger value="sources" className="text-xs">
-                    <Globe className="mr-1.5 size-3" />
-                    Crawl Sources
-                  </TabsTrigger>
-                </TabsList>
-
-                {/* Logs tab */}
-                <TabsContent value="logs">
-                  {logsLoading && logs.length === 0 ? (
-                    <div className="space-y-2">
-                      {Array.from({ length: 5 }).map((_, i) => (
-                        <Skeleton key={i} className="h-5 w-full" />
-                      ))}
-                    </div>
-                  ) : logs.length === 0 ? (
-                    <div className="py-10 text-center text-sm text-muted-foreground">
-                      No logs available for this agent yet. Trigger a run to
-                      generate logs.
-                    </div>
-                  ) : (
-                    <>
-                      {logsTrigger && (
-                        <p className="mb-2 text-[11px] text-muted-foreground">
-                          Trigger:{" "}
-                          <span className="font-mono">
-                            {logsTrigger.slice(0, 8)}
-                          </span>{" "}
-                          &middot; {totalLogLines} lines
-                          {selected.status === "running" && (
-                            <span className="ml-2 text-green-600">
-                              (auto-refreshing)
-                            </span>
-                          )}
-                        </p>
+              {/* Log viewer */}
+              {logsLoading && logs.length === 0 ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <Skeleton key={i} className="h-5 w-full" />
+                  ))}
+                </div>
+              ) : logs.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  No logs available for this agent yet. Trigger a run to
+                  generate logs.
+                </div>
+              ) : (
+                <>
+                  {selectedTrigger && (
+                    <p className="mb-2 text-[11px] text-muted-foreground">
+                      Trigger:{" "}
+                      <span className="font-mono">
+                        {selectedTrigger.trigger_id.slice(0, 8)}
+                      </span>{" "}
+                      &middot; {totalLogLines} lines &middot;{" "}
+                      {formatDate(selectedTrigger.created_at)}
+                      {selected.status === "running" && (
+                        <span className="ml-2 text-green-600">
+                          (auto-refreshing)
+                        </span>
                       )}
-                      <ScrollArea className="h-[360px] rounded-md border bg-muted/30">
-                        <div className="p-3 font-mono text-[11px] leading-relaxed space-y-0.5">
-                          {logs.map((entry, i) => (
-                            <div key={i} className="flex gap-2">
-                              <span className="text-muted-foreground shrink-0 w-[60px]">
-                                {formatTs(entry.ts)}
-                              </span>
-                              <span
-                                className={cn(
-                                  "shrink-0 w-[44px] uppercase font-semibold",
-                                  levelColor(entry.level),
-                                )}
-                              >
-                                {entry.level}
-                              </span>
-                              <span className="text-blue-500 shrink-0 w-[60px] truncate">
-                                {entry.step}
-                              </span>
-                              <span className="flex-1 break-all">
-                                {entry.event}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </ScrollArea>
-                    </>
+                    </p>
                   )}
-                </TabsContent>
-
-                {/* Sources tab */}
-                <TabsContent value="sources">
-                  {sourcesLoading ? (
-                    <div className="space-y-2">
-                      {Array.from({ length: 3 }).map((_, i) => (
-                        <Skeleton key={i} className="h-12 w-full" />
-                      ))}
-                    </div>
-                  ) : sources.length === 0 ? (
-                    <div className="py-10 text-center text-sm text-muted-foreground">
-                      No crawl sources configured for this agent. Add sources
-                      in the Sources page.
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {sources.map((src) => (
-                        <div
-                          key={src.source_id}
-                          className="flex items-center justify-between rounded-md border px-4 py-3"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium truncate">
-                              {src.display_name}
-                            </p>
-                            <p className="text-xs text-muted-foreground truncate font-mono">
-                              {src.url}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2 ml-3 shrink-0">
-                            <Badge
-                              variant={src.is_enabled ? "default" : "secondary"}
-                              className="text-[10px]"
-                            >
-                              {src.is_enabled ? "Active" : "Disabled"}
-                            </Badge>
-                            <a
-                              href={src.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 w-7 p-0"
-                              >
-                                <ExternalLink className="size-3.5" />
-                              </Button>
-                            </a>
-                          </div>
+                  <ScrollArea className="h-[360px] rounded-md border bg-muted/30">
+                    <div className="p-3 font-mono text-[11px] leading-relaxed space-y-0.5">
+                      {logs.map((entry, i) => (
+                        <div key={i} className="flex gap-2">
+                          <span className="text-muted-foreground shrink-0 w-[60px]">
+                            {formatTs(entry.ts)}
+                          </span>
+                          <span
+                            className={cn(
+                              "shrink-0 w-[44px] uppercase font-semibold",
+                              levelColor(entry.level),
+                            )}
+                          >
+                            {entry.level}
+                          </span>
+                          <span className="text-blue-500 shrink-0 w-[60px] truncate">
+                            {entry.step}
+                          </span>
+                          <span className="flex-1 break-all">
+                            {entry.event}
+                          </span>
                         </div>
                       ))}
                     </div>
-                  )}
-                </TabsContent>
-              </Tabs>
+                  </ScrollArea>
+                </>
+              )}
             </CardContent>
           </Card>
         </>

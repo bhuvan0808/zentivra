@@ -39,6 +39,7 @@ Execution state lives on RunTrigger, NOT on Run (which is pure config).
 """
 
 import asyncio
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -56,6 +57,7 @@ from app.digest.compiler import DigestCompiler
 from app.digest.pdf_renderer import PDFRenderer
 from app.models.digest import Digest
 from app.models.digest_snapshot import DigestSnapshot
+from app.models.agent_log import AgentLog
 from app.models.finding import Finding
 from app.models.run import Run
 from app.models.run_trigger import RunTrigger
@@ -429,6 +431,16 @@ class Orchestrator:
                     )
             finally:
                 run_log.close()
+                # Persist logs to DB so they survive Render deploys
+                try:
+                    await self._persist_logs_to_db(
+                        trigger.run_trigger_id, run_user_id, db
+                    )
+                    await db.commit()
+                except Exception as exc:
+                    logger.error(
+                        "log_db_persistence_failed err=%s", str(exc)[:200]
+                    )
 
     # ── Layer 1: Source Resolution ──────────────────────────────────
 
@@ -754,3 +766,67 @@ class Orchestrator:
             logger.info("email_sent recipients=%d", len(recipients))
         except Exception as exc:
             logger.error("email_send_error err=%s", str(exc)[:200])
+
+    # ── Layer 8: Log Persistence ──────────────────────────────────
+
+    async def _persist_logs_to_db(
+        self,
+        trigger_id: str,
+        user_id: int,
+        db: AsyncSession,
+    ) -> None:
+        """
+        Read NDJSON log files from disk and persist to agent_logs table.
+
+        Called after run_log.close() to ensure files are fully written.
+        Existing records for the same (trigger_id, agent_key) are updated.
+        """
+        trigger_log_dir = LOG_DIR / trigger_id
+        if not trigger_log_dir.is_dir():
+            return
+
+        for child in trigger_log_dir.iterdir():
+            if not child.is_dir():
+                continue
+
+            agent_key = child.name
+            log_file = child / "logs.ndjson"
+            if not log_file.exists():
+                continue
+
+            entries: list[dict] = []
+            total_lines = 0
+            with open(log_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    total_lines += 1
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+
+            # Upsert: update if exists, create if new
+            existing = await db.execute(
+                select(AgentLog)
+                .where(AgentLog.trigger_id == trigger_id)
+                .where(AgentLog.agent_key == agent_key)
+            )
+            record = existing.scalar_one_or_none()
+            if record:
+                record.entries = entries
+                record.total_lines = total_lines
+            else:
+                db.add(
+                    AgentLog(
+                        user_id=user_id,
+                        trigger_id=trigger_id,
+                        agent_key=agent_key,
+                        entries=entries,
+                        total_lines=total_lines,
+                    )
+                )
+
+        await db.flush()
+        logger.info("logs_persisted_to_db trigger=%s", trigger_id[:8])

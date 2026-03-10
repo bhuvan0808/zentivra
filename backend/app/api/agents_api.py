@@ -4,27 +4,30 @@ Agents API
 URL prefix: /api/agents
 
 Lists intelligence agents with live status and provides access to
-per-agent execution logs and crawl sources. Status is derived from
-active run triggers and the filesystem log directory.
+per-agent execution logs and crawl sources. Logs are read from the DB
+(agent_logs table) with filesystem fallback for currently running triggers.
 
 Endpoints:
-- GET  /api/agents                      → list all agents with status
-- GET  /api/agents/{agent_key}/logs     → recent logs for a specific agent
-- GET  /api/agents/{agent_key}/sources  → crawl sources for an agent
+- GET  /api/agents                      -> list all agents with status
+- GET  /api/agents/{agent_key}/logs     -> recent logs for a specific agent
+- GET  /api/agents/{agent_key}/sources  -> crawl sources for an agent
 """
 
 import json
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import CurrentUser, get_current_user
+from app.dependencies import CurrentUser, get_current_user, get_agent_log_repository
+from app.models.agent_log import AgentLog
 from app.models.run_trigger import RunTrigger
 from app.models.run import Run
 from app.models.source import Source
+from app.repositories.agent_log_repository import AgentLogRepository
+from app.utils.logger import logger
 
 router = APIRouter(prefix="/agents", tags=["Agents"])
 
@@ -52,10 +55,32 @@ AGENT_DEFINITIONS = {
 }
 
 
+def _read_ndjson_from_file(log_file: Path, limit: int = 500) -> tuple[list[dict], int]:
+    """Read NDJSON log file, returning (entries, total_lines)."""
+    entries: list[dict] = []
+    total_lines = 0
+    with open(log_file, "r", encoding="utf-8") as f:
+        for line in f:
+            total_lines += 1
+            if len(entries) < limit:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    for field in _STRIP_FIELDS:
+                        entry.pop(field, None)
+                    entries.append(entry)
+                except json.JSONDecodeError:
+                    continue
+    return entries, total_lines
+
+
 @router.get("")
 async def list_agents(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
+    log_repo: AgentLogRepository = Depends(get_agent_log_repository),
 ):
     """
     GET /api/agents
@@ -73,6 +98,7 @@ async def list_agents(
     result = await db.execute(stmt)
     running_trigger_ids = [row[0] for row in result.all()]
 
+    # For running triggers, check filesystem (process is alive, dirs exist)
     for trigger_id in running_trigger_ids:
         trigger_log_dir = LOG_DIR / trigger_id
         if trigger_log_dir.is_dir():
@@ -80,28 +106,59 @@ async def list_agents(
                 if child.is_dir():
                     running_agents.add(child.name)
 
-    # Count enabled sources per agent type for this user
+    # Count enabled sources per agent type (include shared sources: user_id=0)
     stmt = (
         select(Source.agent_type, func.count())
-        .where(Source.user_id == user.id)
+        .where(or_(Source.user_id == user.id, Source.user_id == 0))
         .where(Source.is_enabled == True)  # noqa: E712
         .group_by(Source.agent_type)
     )
     result = await db.execute(stmt)
     source_counts = dict(result.all())
 
-    # Find the latest trigger with logs for each agent
-    latest_logs: dict[str, dict] = {}
+    # Find recent triggers with logs — query DB first, supplement with filesystem
+    agent_triggers: dict[str, list[dict]] = {k: [] for k in AGENT_DEFINITIONS}
+
+    # Get recent triggers from DB
     stmt = (
         select(RunTrigger.run_trigger_id, RunTrigger.status, RunTrigger.created_at)
         .join(Run, RunTrigger.run_id == Run.id)
         .where(Run.user_id == user.id)
         .order_by(RunTrigger.created_at.desc())
-        .limit(20)
+        .limit(50)
     )
     result = await db.execute(stmt)
     recent_triggers = result.all()
+    trigger_info = {
+        tid: (status, created_at) for tid, status, created_at in recent_triggers
+    }
+    trigger_ids = list(trigger_info.keys())
 
+    # Check DB for which agents have logs for these triggers (resilient)
+    seen_pairs: set[tuple[str, str]] = set()
+    try:
+        db_trigger_agents = await log_repo.get_trigger_agent_map(user.id, trigger_ids)
+        for trigger_id, agent_key in db_trigger_agents:
+            if agent_key not in agent_triggers:
+                continue
+            if len(agent_triggers[agent_key]) >= 10:
+                continue
+            pair = (trigger_id, agent_key)
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+            status, created_at = trigger_info.get(trigger_id, (None, None))
+            agent_triggers[agent_key].append(
+                {
+                    "trigger_id": trigger_id,
+                    "trigger_status": status,
+                    "created_at": created_at.isoformat() if created_at else None,
+                }
+            )
+    except Exception as exc:
+        logger.warning("agent_log_db_query_failed err=%s", str(exc)[:200])
+
+    # Supplement with filesystem for triggers not yet in DB
     for trigger_id, status, created_at in recent_triggers:
         trigger_log_dir = LOG_DIR / trigger_id
         if not trigger_log_dir.is_dir():
@@ -110,16 +167,22 @@ async def list_agents(
             if not child.is_dir():
                 continue
             agent_name = child.name
-            if agent_name not in latest_logs:
+            pair = (trigger_id, agent_name)
+            if pair in seen_pairs:
+                continue
+            if agent_name in agent_triggers and len(agent_triggers[agent_name]) < 10:
                 log_file = child / "logs.ndjson"
                 if log_file.exists():
-                    latest_logs[agent_name] = {
-                        "trigger_id": trigger_id,
-                        "trigger_status": status,
-                        "created_at": (
-                            created_at.isoformat() if created_at else None
-                        ),
-                    }
+                    seen_pairs.add(pair)
+                    agent_triggers[agent_name].append(
+                        {
+                            "trigger_id": trigger_id,
+                            "trigger_status": status,
+                            "created_at": (
+                                created_at.isoformat() if created_at else None
+                            ),
+                        }
+                    )
 
     agents = []
     for key, defn in AGENT_DEFINITIONS.items():
@@ -130,7 +193,7 @@ async def list_agents(
                 "description": defn["description"],
                 "status": "running" if key in running_agents else "idle",
                 "sources_count": source_counts.get(key, 0),
-                "latest_log": latest_logs.get(key),
+                "recent_triggers": agent_triggers.get(key, []),
             }
         )
 
@@ -146,14 +209,15 @@ async def get_agent_logs(
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
+    log_repo: AgentLogRepository = Depends(get_agent_log_repository),
 ):
     """
     GET /api/agents/{agent_key}/logs
     Auth: Bearer token required.
     Response: { agent_key, trigger_id, total_lines, entries[] }.
 
-    If trigger_id is provided, returns logs from that trigger.
-    Otherwise, returns logs from the most recent trigger with data for this agent.
+    Reads from DB first, falls back to filesystem for running/unpersisted triggers.
+    If found on filesystem but not in DB, persists to DB (write-through cache).
     """
     if agent_key not in AGENT_DEFINITIONS:
         raise HTTPException(status_code=404, detail=f"Unknown agent: {agent_key}")
@@ -171,22 +235,32 @@ async def get_agent_logs(
             raise HTTPException(status_code=404, detail="Trigger not found")
     else:
         # Find the latest trigger with logs for this agent
-        stmt = (
-            select(RunTrigger.run_trigger_id)
-            .join(Run, RunTrigger.run_id == Run.id)
-            .where(Run.user_id == user.id)
-            .order_by(RunTrigger.created_at.desc())
-            .limit(20)
-        )
-        result = await db.execute(stmt)
-        recent = result.all()
-
+        # Check DB first (resilient)
         trigger_id = None
-        for (tid,) in recent:
-            log_file = LOG_DIR / tid / agent_key / "logs.ndjson"
-            if log_file.exists():
-                trigger_id = tid
-                break
+        try:
+            db_logs = await log_repo.get_triggers_for_agent(user.id, agent_key, limit=1)
+            if db_logs:
+                trigger_id = db_logs[0].trigger_id
+        except Exception:
+            pass
+
+        if not trigger_id:
+            # Fallback: check filesystem
+            stmt = (
+                select(RunTrigger.run_trigger_id)
+                .join(Run, RunTrigger.run_id == Run.id)
+                .where(Run.user_id == user.id)
+                .order_by(RunTrigger.created_at.desc())
+                .limit(20)
+            )
+            result = await db.execute(stmt)
+            recent = result.all()
+
+            for (tid,) in recent:
+                log_file = LOG_DIR / tid / agent_key / "logs.ndjson"
+                if log_file.exists():
+                    trigger_id = tid
+                    break
 
         if not trigger_id:
             return {
@@ -196,6 +270,21 @@ async def get_agent_logs(
                 "entries": [],
             }
 
+    # Try DB first (resilient)
+    try:
+        db_record = await log_repo.get_for_trigger(trigger_id, agent_key)
+        if db_record and db_record.entries:
+            entries = db_record.entries[:limit]
+            return {
+                "agent_key": agent_key,
+                "trigger_id": trigger_id,
+                "total_lines": db_record.total_lines,
+                "entries": entries,
+            }
+    except Exception:
+        pass
+
+    # Fallback: read from filesystem
     log_file = LOG_DIR / trigger_id / agent_key / "logs.ndjson"
     if not log_file.exists():
         return {
@@ -205,23 +294,22 @@ async def get_agent_logs(
             "entries": [],
         }
 
-    entries: list[dict] = []
-    total_lines = 0
+    entries, total_lines = _read_ndjson_from_file(log_file, limit)
 
-    with open(log_file, "r", encoding="utf-8") as f:
-        for line in f:
-            total_lines += 1
-            if len(entries) < limit:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                    for field in _STRIP_FIELDS:
-                        entry.pop(field, None)
-                    entries.append(entry)
-                except json.JSONDecodeError:
-                    continue
+    # Write-through cache: persist to DB for future reads after deploy
+    try:
+        all_entries, all_lines = _read_ndjson_from_file(log_file, limit=10000)
+        await log_repo.upsert(
+            AgentLog(
+                user_id=user.id,
+                trigger_id=trigger_id,
+                agent_key=agent_key,
+                entries=all_entries,
+                total_lines=all_lines,
+            )
+        )
+    except Exception:
+        pass  # Non-fatal: log will be persisted by orchestrator on completion
 
     return {
         "agent_key": agent_key,
@@ -241,6 +329,7 @@ async def get_agent_sources(
     GET /api/agents/{agent_key}/sources
     Auth: Bearer token required.
     Response: list of { source_id, source_name, display_name, url, is_enabled }.
+    Includes shared sources (user_id=0) alongside user-specific sources.
     """
     if agent_key not in AGENT_DEFINITIONS:
         raise HTTPException(status_code=404, detail=f"Unknown agent: {agent_key}")
@@ -253,7 +342,7 @@ async def get_agent_sources(
             Source.url,
             Source.is_enabled,
         )
-        .where(Source.user_id == user.id)
+        .where(or_(Source.user_id == user.id, Source.user_id == 0))
         .where(Source.agent_type == agent_key)
         .order_by(Source.display_name)
     )

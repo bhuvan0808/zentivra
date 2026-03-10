@@ -21,6 +21,8 @@ from app.models.run_trigger import RunTrigger
 from app.models.digest import Digest
 from app.models.digest_snapshot import DigestSnapshot
 from app.models.orchestrator_config import OrchestratorConfig
+from app.models.agent_log import AgentLog
+from app.models.disruptive_report import DisruptiveReport
 
 __all__ = [
     "User",
@@ -33,4 +35,6 @@ __all__ = [
     "Digest",
     "DigestSnapshot",
     "OrchestratorConfig",
+    "AgentLog",
+    "DisruptiveReport",
 ]

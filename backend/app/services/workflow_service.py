@@ -98,12 +98,20 @@ class WorkflowService:
             pdf_path=pdf_path,
         )
 
+        # Read PDF bytes for DB persistence
+        pdf_bytes: bytes | None = None
+        pdf_file = Path(pdf_path) if pdf_path else None
+        if pdf_file and pdf_file.exists() and pdf_file.suffix.lower() == ".pdf":
+            pdf_bytes = pdf_file.read_bytes()
+
         return {
             "report_id": report_id,
             "findings_count": digest_data.get("total_findings", 0),
             "email_sent": email_sent,
             "pdf_path": pdf_path,
             "agents_used": selected_agents,
+            "executive_summary": digest_data.get("executive_summary", ""),
+            "pdf_bytes": pdf_bytes,
         }
 
     def get_disruptive_report_pdf_path(self, report_id: str) -> Path:
@@ -147,18 +155,16 @@ class WorkflowService:
         agent_class = AGENT_MAP[agent_type]
         agent = agent_class()
         try:
+            label = f"AdHoc {agent_type.value}"
             synthetic_source = Source(
-                id=str(uuid.uuid4()),
-                agent_type=agent_type,
-                name=f"AdHoc {agent_type.value}",
+                source_id=str(uuid.uuid4()),
+                source_name=label,
+                display_name=label,
+                agent_type=agent_type.value,
                 url=url,
-                feed_url=None,
-                css_selectors=None,
-                keywords=None,
-                rate_limit_rpm=settings.default_rate_limit_rpm,
-                crawl_depth=1,
-                enabled=True,
+                is_enabled=True,
             )
-            return await agent.run(report_id, [synthetic_source], db=None)
+            result = await agent.run(sources=[synthetic_source])
+            return result.get("findings", [])
         finally:
             await agent.close()
