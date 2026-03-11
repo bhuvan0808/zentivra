@@ -288,14 +288,18 @@ async def seed():
     print("=== Zentivra Demo Data Seeder ===\n")
 
     async with async_session() as db:
-        # ── 1. Fetch all real users (id > 0) ─────────────────────────
-        result = await db.execute(select(User).where(User.id > 0))
-        users = result.scalars().all()
-        if not users:
-            print("ERROR: No users found in DB. Create users first.")
+        # ── 1. Fetch target user only ────────────────────────────────
+        TARGET_EMAIL = "bhuvanboddu08@gmail.com"
+        result = await db.execute(
+            select(User).where(User.email == TARGET_EMAIL)
+        )
+        target_user = result.scalar_one_or_none()
+        if not target_user:
+            print(f"ERROR: User '{TARGET_EMAIL}' not found.")
             return
+        users = [target_user]
 
-        print(f"Found {len(users)} users: {[u.username for u in users]}")
+        print(f"Seeding for: {target_user.username} (id={target_user.id})")
 
         # ── 2. Ensure shared sources exist ───────────────────────────
         result = await db.execute(
