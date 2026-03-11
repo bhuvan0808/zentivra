@@ -25,9 +25,22 @@ export interface OopsResponse {
   readonly message: string;
 }
 
+export interface OopsReportSummary {
+  readonly report_id: string;
+  readonly url: string;
+  readonly title: string | null;
+  readonly recipient_email: string;
+  readonly findings_count: number;
+  readonly email_sent: boolean;
+  readonly agents_used: string[];
+  readonly executive_summary: string;
+  readonly created_at: string | null;
+  readonly pdf_download_url: string;
+}
+
 // ── Request helper ───────────────────────────────────────────────────────
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
 
 function authHeaders(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -86,4 +99,8 @@ export function submitOopsReport(
 
 export function getOopsReportPdfUrl(reportId: string): string {
   return `${BASE_URL}/api/workflows/reports/${reportId}/pdf`;
+}
+
+export function getReportHistory(): Promise<ApiResult<OopsReportSummary[]>> {
+  return api<OopsReportSummary[]>("/api/workflows/reports");
 }

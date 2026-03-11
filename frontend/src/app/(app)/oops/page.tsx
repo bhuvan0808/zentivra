@@ -10,6 +10,8 @@ import {
   Loader2,
   Mail,
   Link2,
+  History,
+  FileText,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useOops } from "@/hooks/use-oops";
 
 const AGENT_LABELS: Record<string, string> = {
@@ -26,6 +29,22 @@ const AGENT_LABELS: Record<string, string> = {
   research: "Research Scout",
   hf_benchmark: "HF Benchmark Tracker",
 };
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
+}
 
 export default function OopsPage() {
   const {
@@ -38,9 +57,12 @@ export default function OopsPage() {
     submitting,
     result,
     error,
+    history,
+    historyLoading,
     handleSubmit,
     handleReset,
     handleDownloadPdf,
+    handleDownloadHistoryPdf,
   } = useOops();
 
   return (
@@ -272,6 +294,72 @@ export default function OopsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Report history */}
+      {(history.length > 0 || historyLoading) && (
+        <>
+          <Separator className="my-6" />
+
+          <div className="flex items-center gap-2 mb-4">
+            <History className="size-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold">Report History</h3>
+          </div>
+
+          {historyLoading && history.length === 0 ? (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-16 w-full rounded-lg" />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {history.map((report) => (
+                <Card key={report.report_id}>
+                  <CardContent className="py-3 flex items-center gap-4">
+                    <FileText className="size-5 text-muted-foreground shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium truncate">
+                          {report.title || report.url}
+                        </p>
+                        <Badge variant="secondary" className="text-[10px] shrink-0">
+                          {report.findings_count} findings
+                        </Badge>
+                        {report.email_sent ? (
+                          <Badge className="bg-green-500/15 text-green-600 text-[10px] border-0 shrink-0">
+                            Emailed
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-[10px] shrink-0">
+                            Not Emailed
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 mt-1">
+                        <span className="text-[11px] text-muted-foreground truncate">
+                          {report.url}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground shrink-0">
+                          {formatDate(report.created_at)}
+                        </span>
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs shrink-0"
+                      onClick={() => handleDownloadHistoryPdf(report.report_id)}
+                    >
+                      <Download className="mr-1.5 size-3" />
+                      PDF
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

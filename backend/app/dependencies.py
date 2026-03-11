@@ -163,7 +163,31 @@ async def get_current_user_full(
     return await service.validate_token(token)
 
 
-# ── Workflow (stateless service, no DB dependency) ────────────────────────
+# ── Agent Log (db -> repo) ────────────────────────────────────────────────
+
+
+def get_agent_log_repository(
+    db: AsyncSession = Depends(get_db),
+) -> "AgentLogRepository":
+    from app.repositories.agent_log_repository import AgentLogRepository
+
+    return AgentLogRepository(db)
+
+
+# ── Disruptive Report (db -> repo) ───────────────────────────────────────
+
+
+def get_disruptive_report_repository(
+    db: AsyncSession = Depends(get_db),
+) -> "DisruptiveReportRepository":
+    from app.repositories.disruptive_report_repository import (
+        DisruptiveReportRepository,
+    )
+
+    return DisruptiveReportRepository(db)
+
+
+# ── Workflow (service, stateless orchestration) ──────────────────────────
 
 
 def get_workflow_service():
