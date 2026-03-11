@@ -109,7 +109,7 @@ export default function AgentsPage() {
       />
 
       {/* Agent cards — always visible (4 static cards with live data overlay) */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2">
         {agents.map((agent) => {
           const badge = statusLabel(agent);
           return (
