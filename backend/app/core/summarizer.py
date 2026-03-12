@@ -433,98 +433,154 @@ Focus on: what happened, why it matters, and what to watch for. No preamble."""
                     raise
 
     async def _call_openai(self, prompt: str) -> str:
-        """Call OpenAI API. Raises on HTTP error."""
+        """Call OpenAI API with retry/backoff for rate limits."""
+        import asyncio
         import httpx
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {settings.openai_api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": self._resolve_model(),
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.3,
-                    "max_tokens": 2048,
-                },
-                timeout=settings.llm_timeout_seconds,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data["choices"][0]["message"]["content"]
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        "https://api.openai.com/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {settings.openai_api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": self._resolve_model(),
+                            "messages": [{"role": "user", "content": prompt}],
+                            "temperature": 0.3,
+                            "max_tokens": 2048,
+                        },
+                        timeout=settings.llm_timeout_seconds,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    return data["choices"][0]["message"]["content"]
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429 and attempt < max_retries - 1:
+                    retry_after = int(e.response.headers.get("retry-after", 0))
+                    wait = max(retry_after, 2 ** (attempt + 1))
+                    logger.warning(
+                        "openai_rate_limit wait=%d attempt=%d", wait, attempt + 1
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                raise
 
     async def _call_anthropic(self, prompt: str) -> str:
-        """Call Anthropic Claude API. Raises on HTTP error."""
+        """Call Anthropic Claude API with retry/backoff for rate limits."""
+        import asyncio
         import httpx
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": settings.anthropic_api_key,
-                    "Content-Type": "application/json",
-                    "anthropic-version": "2023-06-01",
-                },
-                json={
-                    "model": self._resolve_model(),
-                    "max_tokens": 2048,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-                timeout=settings.llm_timeout_seconds,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data["content"][0]["text"]
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        "https://api.anthropic.com/v1/messages",
+                        headers={
+                            "x-api-key": settings.anthropic_api_key,
+                            "Content-Type": "application/json",
+                            "anthropic-version": "2023-06-01",
+                        },
+                        json={
+                            "model": self._resolve_model(),
+                            "max_tokens": 2048,
+                            "messages": [{"role": "user", "content": prompt}],
+                        },
+                        timeout=settings.llm_timeout_seconds,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    return data["content"][0]["text"]
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429 and attempt < max_retries - 1:
+                    retry_after = int(e.response.headers.get("retry-after", 0))
+                    wait = max(retry_after, 2 ** (attempt + 1))
+                    logger.warning(
+                        "anthropic_rate_limit wait=%d attempt=%d", wait, attempt + 1
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                raise
 
     async def _call_groq(self, prompt: str) -> str:
-        """Call Groq API (fast inference). Raises on HTTP error."""
+        """Call Groq API (fast inference) with retry/backoff for rate limits."""
+        import asyncio
         import httpx
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {settings.groq_api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": self._resolve_model(),
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.3,
-                    "max_tokens": 2048,
-                },
-                timeout=settings.llm_timeout_seconds,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data["choices"][0]["message"]["content"]
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {settings.groq_api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": self._resolve_model(),
+                            "messages": [{"role": "user", "content": prompt}],
+                            "temperature": 0.3,
+                            "max_tokens": 2048,
+                        },
+                        timeout=settings.llm_timeout_seconds,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    return data["choices"][0]["message"]["content"]
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429 and attempt < max_retries - 1:
+                    retry_after = int(e.response.headers.get("retry-after", 0))
+                    wait = max(retry_after, 2 ** (attempt + 1))
+                    logger.warning(
+                        "groq_rate_limit wait=%d attempt=%d", wait, attempt + 1
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                raise
 
     async def _call_openrouter(self, prompt: str) -> str:
-        """Call OpenRouter API (multi-model gateway). Raises on HTTP error."""
+        """Call OpenRouter API (multi-model gateway) with retry/backoff for rate limits."""
+        import asyncio
         import httpx
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {settings.openrouter_api_key}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://zentivra.local",
-                    "X-Title": "Zentivra AI Radar",
-                },
-                json={
-                    "model": self._resolve_model(),
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.3,
-                    "max_tokens": 2048,
-                },
-                timeout=settings.llm_timeout_seconds,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data["choices"][0]["message"]["content"]
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {settings.openrouter_api_key}",
+                            "Content-Type": "application/json",
+                            "HTTP-Referer": "https://zentivra.local",
+                            "X-Title": "Zentivra AI Radar",
+                        },
+                        json={
+                            "model": self._resolve_model(),
+                            "messages": [{"role": "user", "content": prompt}],
+                            "temperature": 0.3,
+                            "max_tokens": 2048,
+                        },
+                        timeout=settings.llm_timeout_seconds,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    return data["choices"][0]["message"]["content"]
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429 and attempt < max_retries - 1:
+                    retry_after = int(e.response.headers.get("retry-after", 0))
+                    wait = max(retry_after, 2 ** (attempt + 1))
+                    logger.warning(
+                        "openrouter_rate_limit wait=%d attempt=%d", wait, attempt + 1
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                raise
 
     # ── Response Parsing ──────────────────────────────────────────────────
 

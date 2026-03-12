@@ -79,6 +79,22 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
 
 
+async def ensure_schema():
+    """Add columns that may be missing from an older schema.
+
+    Safe to call repeatedly — uses IF NOT EXISTS / checks before altering.
+    """
+    from sqlalchemy import text
+
+    async with engine.begin() as conn:
+        # Add meta JSONB column to findings if it doesn't exist
+        await conn.execute(
+            text(
+                "ALTER TABLE findings ADD COLUMN IF NOT EXISTS meta JSONB DEFAULT NULL"
+            )
+        )
+
+
 async def close_db():
     """Dispose of the database engine."""
     await engine.dispose()

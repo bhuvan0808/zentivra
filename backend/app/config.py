@@ -56,21 +56,21 @@ class Settings(BaseSettings):
 
     # LLM model overrides (per provider)
     groq_model: str = "llama-3.3-70b-versatile"
-    openrouter_model: str = "meta-llama/llama-3.3-70b-instruct"
+    openrouter_model: str = "anthropic/claude-sonnet-4-20250514"
     gemini_model: str = "gemini-2.0-flash-lite"
-    openai_model: str = "gpt-4o-mini"
+    openai_model: str = "gpt-4o"
     anthropic_model: str = "claude-sonnet-4-20250514"
 
     # ── Email ─────────────────────────────────────────────────────────────
     sendgrid_api_key: Optional[str] = None
-    smtp_host: Optional[str] = None
+    smtp_host: Optional[str] = "smtp.gmail.com"
     smtp_port: int = 587
-    smtp_user: Optional[str] = None
-    smtp_password: Optional[str] = None
+    smtp_user: Optional[str] = "zentivra0@gmail.com"
+    smtp_password: Optional[str] = "faoxxggcgulwhyyt"
     smtp_use_tls: bool = True
     smtp_use_ssl: bool = False
     smtp_timeout_seconds: int = 30
-    email_from: str = "zentivra@localhost"
+    email_from: str = "zentivra0@gmail.com"
     email_recipients: str = ""  # Comma-separated list
 
     # ── Optional API Keys ─────────────────────────────────────────────────
