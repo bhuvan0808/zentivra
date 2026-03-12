@@ -137,7 +137,10 @@ export function useAgents(): UseAgentsReturn {
     if (!selectedAgent) return;
 
     const agent = agents.find((a) => a.key === selectedAgent);
-    if (!agent || agent.status !== "running") return;
+    if (!agent) return;
+    
+    const isRunning = agent.status === "running" || agent.recent_triggers[0]?.trigger_status === "running" || agent.recent_triggers[0]?.trigger_status === "pending";
+    if (!isRunning) return;
 
     const id = setInterval(() => {
       if (selectedAgentRef.current) {

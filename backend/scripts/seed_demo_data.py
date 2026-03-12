@@ -40,82 +40,30 @@ NOW = datetime.now(timezone.utc)
 # ── Shared sources to ensure exist (user_id=0) ──────────────────────────
 
 SHARED_SOURCES = [
-    # Competitor
-    {
-        "source_name": "openai_blog",
-        "display_name": "OpenAI Blog",
-        "agent_type": "competitor",
-        "url": "https://openai.com/blog",
-    },
-    {
-        "source_name": "google_ai_blog",
-        "display_name": "Google AI Blog",
-        "agent_type": "competitor",
-        "url": "https://blog.google/technology/ai/",
-    },
-    {
-        "source_name": "anthropic_news",
-        "display_name": "Anthropic News",
-        "agent_type": "competitor",
-        "url": "https://www.anthropic.com/news",
-    },
-    {
-        "source_name": "meta_ai_blog",
-        "display_name": "Meta AI Blog",
-        "agent_type": "competitor",
-        "url": "https://ai.meta.com/blog/",
-    },
-    # Model Provider
-    {
-        "source_name": "openai_api_changelog",
-        "display_name": "OpenAI API Changelog",
-        "agent_type": "model_provider",
-        "url": "https://platform.openai.com/docs/changelog",
-    },
-    {
-        "source_name": "anthropic_api_docs",
-        "display_name": "Anthropic API Docs",
-        "agent_type": "model_provider",
-        "url": "https://docs.anthropic.com/en/docs/about-claude/models",
-    },
-    {
-        "source_name": "groq_blog",
-        "display_name": "Groq Updates",
-        "agent_type": "model_provider",
-        "url": "https://groq.com/news/",
-    },
-    # Research
-    {
-        "source_name": "arxiv_cs_ai",
-        "display_name": "arXiv CS.AI",
-        "agent_type": "research",
-        "url": "https://arxiv.org/list/cs.AI/recent",
-    },
-    {
-        "source_name": "arxiv_cs_cl",
-        "display_name": "arXiv CS.CL",
-        "agent_type": "research",
-        "url": "https://arxiv.org/list/cs.CL/recent",
-    },
-    {
-        "source_name": "semantic_scholar_trending",
-        "display_name": "Semantic Scholar Trending",
-        "agent_type": "research",
-        "url": "https://www.semanticscholar.org/",
-    },
-    # HF Benchmark
-    {
-        "source_name": "hf_open_llm",
-        "display_name": "HF Open LLM Leaderboard",
-        "agent_type": "hf_benchmark",
-        "url": "https://huggingface.co/spaces/open-llm-leaderboard/open_llm_leaderboard",
-    },
-    {
-        "source_name": "hf_chatbot_arena",
-        "display_name": "Chatbot Arena",
-        "agent_type": "hf_benchmark",
-        "url": "https://lmarena.ai/",
-    },
+    # Competitor Release Watcher
+    {"source_name": "openai_news", "display_name": "OpenAI Product Releases", "agent_type": "competitor", "url": "https://openai.com/news/product-releases/"},
+    {"source_name": "anthropic_news", "display_name": "Anthropic News", "agent_type": "competitor", "url": "https://www.anthropic.com/news"},
+    {"source_name": "cohere_blog", "display_name": "Cohere Blog", "agent_type": "competitor", "url": "https://cohere.com/blog"},
+    {"source_name": "perplexity_hub", "display_name": "Perplexity Hub", "agent_type": "competitor", "url": "https://www.perplexity.ai/hub"},
+    {"source_name": "mistral_news", "display_name": "Mistral News", "agent_type": "competitor", "url": "https://mistral.ai/news"},
+    
+    # Foundation Model Provider Updates
+    {"source_name": "deepmind_blog", "display_name": "DeepMind Blog", "agent_type": "model_provider", "url": "https://deepmind.google/blog/"},
+    {"source_name": "nvidia_blogs", "display_name": "NVIDIA Blogs", "agent_type": "model_provider", "url": "https://blogs.nvidia.com/"},
+    {"source_name": "microsoft_ai_news", "display_name": "Microsoft AI News", "agent_type": "model_provider", "url": "https://news.microsoft.com/source/topics/ai/"},
+    {"source_name": "stability_research", "display_name": "Stability AI Research", "agent_type": "model_provider", "url": "https://stability.ai/research"},
+    
+    # Research Publication Scout
+    {"source_name": "arxiv_llm", "display_name": "arXiv LLM Search", "agent_type": "research", "url": "https://arxiv.org/search/?query=llm&searchtype=all&source=header"},
+    {"source_name": "semantic_scholar_llm", "display_name": "Semantic Scholar LLM", "agent_type": "research", "url": "https://www.semanticscholar.org/search?q=llm&sort=pub-date"},
+    {"source_name": "hf_trending_papers", "display_name": "HF Trending Papers", "agent_type": "research", "url": "https://huggingface.co/papers/trending"},
+    {"source_name": "allenai_research", "display_name": "AllenAI Research", "agent_type": "research", "url": "https://allenai.org/research"},
+    
+    # Hugging Face Benchmarks & Model Trends
+    {"source_name": "hf_models", "display_name": "HF Models", "agent_type": "hf_benchmark", "url": "https://huggingface.co/models"},
+    {"source_name": "hf_models_trending", "display_name": "HF Trending Models", "agent_type": "hf_benchmark", "url": "https://huggingface.co/models?sort=trending"},
+    {"source_name": "hf_open_llm_leaderboard", "display_name": "HF Open LLM Leaderboard", "agent_type": "hf_benchmark", "url": "https://huggingface.co/spaces/open-llm-leaderboard/open_llm_leaderboard#/"},
+    {"source_name": "hf_datasets", "display_name": "HF Datasets", "agent_type": "hf_benchmark", "url": "https://huggingface.co/datasets"},
 ]
 
 # ── Finding templates per agent type ─────────────────────────────────────
