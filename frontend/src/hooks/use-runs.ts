@@ -254,7 +254,7 @@ export function useRuns(): UseRunsReturn {
     const res = await getTriggerLogPreview(
       selectedTrigger.run_trigger_id,
       agentName,
-      10,
+      100,
     );
     if (res.ok) {
       setLogPreviews((prev) => ({ ...prev, [agentName]: res.data }));

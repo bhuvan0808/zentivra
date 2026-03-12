@@ -509,7 +509,7 @@ class PDFRenderer:
             text = safe_text(value)
             if len(text) <= limit:
                 return text
-            return f"{text[: max(0, limit - 1)]}…"
+            return f"{text[: max(0, limit - 3)]}..."
 
         def draw_benchmark_table(rows: list[dict]) -> None:
             if not rows:

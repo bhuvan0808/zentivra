@@ -38,19 +38,14 @@ Error handling strategy:
 Execution state lives on RunTrigger, NOT on Run (which is pure config).
 """
 
-import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.competitor_watcher import CompetitorWatcher
-from app.agents.hf_benchmark_tracker import HFBenchmarkTracker
-from app.agents.model_provider_watcher import ModelProviderWatcher
-from app.agents.research_scout import ResearchScout
 from app.config import settings
 from app.database import async_session
 from app.digest.compiler import DigestCompiler
@@ -64,15 +59,9 @@ from app.models.run_trigger import RunTrigger
 from app.models.snapshot import Snapshot
 from app.models.source import AgentType, Source
 from app.notifications.email_service import EmailService
+from app.scheduler.agent_graph import run_agents_with_langgraph
 from app.utils.logger import logger
 from app.utils.run_logger import RunLogger
-
-AGENT_MAP = {
-    AgentType.COMPETITOR: CompetitorWatcher,
-    AgentType.MODEL_PROVIDER: ModelProviderWatcher,
-    AgentType.RESEARCH: ResearchScout,
-    AgentType.HF_BENCHMARK: HFBenchmarkTracker,
-}
 
 # Resolved log directory (relative to backend/)
 LOG_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "logs"
@@ -230,6 +219,11 @@ class Orchestrator:
                     else:
                         agent_statuses[agent_name] = "completed"
 
+                    # Tag each finding with its agent_type so the digest
+                    # compiler can group them into the correct sections.
+                    for fd in findings:
+                        fd.setdefault("agent_type", agent_name)
+                        fd.setdefault("source_url", fd.get("src_url", ""))
                     all_finding_dicts.extend(findings)
 
                     run_log.info(
@@ -249,6 +243,28 @@ class Orchestrator:
                             errors[0][:200],
                         )
 
+                # ── 3b. Fallback to previous findings if none produced ─
+                # Ensures PDF is never empty on re-trigger; reuses latest
+                # completed trigger's findings for the same run.
+                used_cached_findings = False
+                if not all_finding_dicts:
+                    cached = await self._get_previous_findings(
+                        run.id, trigger.id, db
+                    )
+                    if cached:
+                        all_finding_dicts = cached
+                        used_cached_findings = True
+                        logger.info(
+                            "findings_cache_hit count=%d run_id=%s",
+                            len(cached),
+                            run.run_id[:8],
+                        )
+                        run_log.info(
+                            "findings_cache_hit",
+                            step="finding_persist",
+                            cached_count=len(cached),
+                        )
+
                 # ── 4. Finding persistence ──────────────────────────
                 # Write Finding records to DB. On failure: immediate commit, status=failed.
                 try:
@@ -262,6 +278,7 @@ class Orchestrator:
                         "findings_persisted",
                         step="finding_persist",
                         count=len(all_finding_dicts),
+                        cached=used_cached_findings,
                     )
                 except Exception as exc:
                     logger.error(
@@ -316,6 +333,9 @@ class Orchestrator:
                     trigger.status = "partial"
                 elif not all_finding_dicts:
                     trigger.status = "completed_empty"
+                elif used_cached_findings:
+                    # Have findings but they came from cache
+                    trigger.status = "completed"
                 else:
                     trigger.status = "completed"
 
@@ -334,11 +354,10 @@ class Orchestrator:
                 )
 
                 # ── 7. Conditional PDF / HTML ───────────────────────
-                # Only when enable_pdf_gen, status not failed/completed_empty, and findings exist.
+                # Generate when pdf enabled and findings exist (including cached).
                 digest_record = None
                 if (
                     run.enable_pdf_gen
-                    and trigger.status not in ("failed", "completed_empty")
                     and all_finding_dicts
                 ):
                     run_log.info("digest_generation_start", step="digest_compile")
@@ -473,16 +492,7 @@ class Orchestrator:
 
         return grouped
 
-    # ── Layer 2: Parallel Agent Execution ──────────────────────────
-
-    # Sentinel returned when an agent times out or raises; provides valid structure
-    # (findings, errors, urls_attempted, urls_succeeded) so consumers need no special-case.
-    _EMPTY_AGENT_RESULT: dict = {
-        "findings": [],
-        "errors": [],
-        "urls_attempted": 0,
-        "urls_succeeded": 0,
-    }
+    # ── Layer 2: Parallel Agent Execution (LangGraph) ────────────
 
     async def _run_agents_parallel(
         self,
@@ -490,135 +500,72 @@ class Orchestrator:
         run_config: Run,
         run_log: RunLogger | None = None,
     ) -> list[tuple[str, dict, Optional[Exception]]]:
-        """Run all agent types concurrently, returning structured results."""
-        tasks: list[asyncio.Task] = []
+        """Run all agent types in parallel using LangGraph.
 
-        for agent_type_str, sources in sources_by_type.items():
-            try:
-                agent_type = AgentType(agent_type_str)
-            except ValueError:
-                logger.warning("unknown_agent_type type=%s", agent_type_str)
-                continue
+        Each agent type gets its own graph node and runs concurrently.
+        Returns structured results: list of (agent_name, result_dict, error).
+        """
+        return await run_agents_with_langgraph(
+            sources_by_type=sources_by_type,
+            run_config=run_config,
+            run_log=run_log,
+        )
 
-            agent_class = AGENT_MAP.get(agent_type)
-            if not agent_class:
-                continue
+    # ── Layer 2b: Previous Findings Cache ─────────────────────────
 
-            agent = agent_class()
+    async def _get_previous_findings(
+        self,
+        run_id: int,
+        current_trigger_id: int,
+        db: AsyncSession,
+    ) -> list[dict]:
+        """Fetch findings from the most recent completed trigger of the same run.
 
-            # Create per-agent sub-logger
-            agent_logger = run_log.for_agent(agent_type_str) if run_log else None
+        Used as a fallback when the current trigger produces 0 findings,
+        ensuring the PDF digest is never empty on re-triggers.
 
-            task = asyncio.create_task(
-                self._run_single_agent(
-                    agent_name=agent_type_str,
-                    agent=agent,
-                    sources=sources,
-                    run_config=run_config,
-                    agent_logger=agent_logger,
-                ),
-                name=f"agent-{agent_type_str}",
+        Returns list of finding dicts (same format as agent output), or [].
+        """
+        # Find the latest completed trigger for this run (not the current one)
+        prev_trigger = await db.execute(
+            select(RunTrigger)
+            .where(
+                and_(
+                    RunTrigger.run_id == run_id,
+                    RunTrigger.id != current_trigger_id,
+                    RunTrigger.status.in_(["completed", "partial"]),
+                )
             )
-            tasks.append(task)
-
-        if not tasks:
+            .order_by(desc(RunTrigger.created_at))
+            .limit(1)
+        )
+        prev = prev_trigger.scalar_one_or_none()
+        if not prev:
             return []
 
-        results: list[tuple[str, dict, Optional[Exception]]] = []
-        for coro in asyncio.as_completed(tasks):
-            result = await coro
-            results.append(result)
-
-        return results
-
-    async def _run_single_agent(
-        self,
-        agent_name: str,
-        agent,
-        sources: list[Source],
-        run_config: Run,
-        agent_logger=None,
-    ) -> tuple[str, dict, Optional[Exception]]:
-        """Execute one agent with timeout and error handling."""
-        timeout = max(0, int(settings.agent_timeout_seconds))
-        logger.info(
-            "agent_start agent=%s sources=%d",
-            agent_name,
-            len(sources),
+        # Fetch findings from that trigger
+        findings_result = await db.execute(
+            select(Finding).where(Finding.run_trigger_id == prev.id)
         )
-        if agent_logger:
-            agent_logger.info(
-                "agent_start",
-                step="pipeline",
-                sources=len(sources),
-            )
+        findings = list(findings_result.scalars().all())
+        if not findings:
+            return []
 
-        try:
-            if timeout > 0:
-                result = await asyncio.wait_for(
-                    agent.run(
-                        sources=sources,
-                        run_config=run_config,
-                        run_logger=agent_logger,
-                    ),
-                    timeout=timeout,
-                )
-            else:
-                result = await agent.run(
-                    sources=sources,
-                    run_config=run_config,
-                    run_logger=agent_logger,
-                )
-
-            logger.info(
-                "agent_complete agent=%s findings=%d errors=%d",
-                agent_name,
-                len(result["findings"]),
-                len(result["errors"]),
-            )
-            if agent_logger:
-                agent_logger.info(
-                    "agent_complete",
-                    step="pipeline",
-                    findings=len(result["findings"]),
-                    errors=len(result["errors"]),
-                )
-            return agent_name, result, None
-
-        except asyncio.TimeoutError:
-            logger.error("agent_timeout agent=%s timeout=%ds", agent_name, timeout)
-            if agent_logger:
-                agent_logger.error(
-                    "agent_timeout",
-                    step="pipeline",
-                    timeout_seconds=timeout,
-                )
-            return (
-                agent_name,
-                {
-                    **self._EMPTY_AGENT_RESULT,
-                    "errors": [f"agent timeout after {timeout}s"],
-                },
-                RuntimeError(f"timed out after {timeout}s"),
-            )
-        except Exception as exc:
-            logger.error("agent_error agent=%s err=%s", agent_name, str(exc)[:300])
-            if agent_logger:
-                agent_logger.error(
-                    "agent_error",
-                    step="pipeline",
-                    error=str(exc)[:300],
-                )
-            return (
-                agent_name,
-                {**self._EMPTY_AGENT_RESULT, "errors": [str(exc)[:300]]},
-                exc,
-            )
-        finally:
-            try:
-                await agent.close()
-            except Exception:
-                pass
+        # Convert to dicts matching agent output format, restoring rich fields from meta
+        result = []
+        for f in findings:
+            fd = {
+                "content": f.content or "",
+                "summary": f.summary or "",
+                "src_url": f.src_url or "",
+                "source_url": f.src_url or "",
+                "category": f.category or "other",
+                "confidence": f.confidence or 0.5,
+            }
+            if f.meta and isinstance(f.meta, dict):
+                fd.update(f.meta)
+            result.append(fd)
+        return result
 
     # ── Layer 3: Finding Persistence ───────────────────────────────
 
@@ -633,7 +580,17 @@ class Orchestrator:
         if not finding_dicts:
             return
 
+        # Keys stored in the meta JSONB column for PDF rendering on cache fallback
+        _META_KEYS = (
+            "title", "summary_short", "summary_long", "why_it_matters",
+            "what_changed", "who_it_affects", "key_numbers", "tags",
+            "entities", "evidence", "publisher", "agent_type",
+            "relevance_score", "novelty_score", "credibility_score",
+            "actionability_score", "impact_score",
+        )
+
         for fd in finding_dicts:
+            meta = {k: fd[k] for k in _META_KEYS if k in fd and fd[k]}
             finding = Finding(
                 user_id=user_id,
                 run_trigger_id=run_trigger_id,
@@ -642,6 +599,7 @@ class Orchestrator:
                 src_url=fd.get("src_url", ""),
                 category=fd.get("category", "other"),
                 confidence=fd.get("confidence", 0.5),
+                meta=meta or None,
             )
             db.add(finding)
 

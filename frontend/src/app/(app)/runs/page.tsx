@@ -822,12 +822,11 @@ export default function RunsPage() {
                                               <TableCell className="py-1 text-muted-foreground">
                                                 {entry.step}
                                               </TableCell>
-                                              <TableCell className="py-1 font-medium">
+                                              <TableCell className="py-1 font-medium whitespace-pre-wrap break-words min-w-[150px] max-w-[300px]">
                                                 {entry.event}
                                               </TableCell>
                                               <TableCell
-                                                className="py-1 text-muted-foreground font-mono truncate max-w-[200px]"
-                                                title={details}
+                                                className="py-1 text-muted-foreground font-mono whitespace-pre-wrap break-words min-w-[200px] max-w-[400px]"
                                               >
                                                 {details || "—"}
                                               </TableCell>

@@ -34,6 +34,13 @@ async def lifespan(app: FastAPI):
 
     logger.info("database_configured url=%s...", settings.database_url[:30])
 
+    from app.database import ensure_schema
+    try:
+        await ensure_schema()
+        logger.info("schema_migration_check complete")
+    except Exception as e:
+        logger.warning("schema_migration_check_failed error=%s", str(e))
+
     from app.core.valkey_client import valkey_client
 
     await valkey_client.connect()
@@ -80,7 +87,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.allowed_origin_list,
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=True,

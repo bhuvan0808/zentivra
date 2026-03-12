@@ -65,13 +65,18 @@ function formatDate(iso: string | null): string {
   }
 }
 
-function statusDot(agent: { status: "running" | "idle"; recent_triggers: unknown[] }): string {
+function statusDot(agent: { status: "running" | "idle"; recent_triggers: any[] }): string {
   if (agent.status === "running") return "bg-green-500 animate-pulse";
-  if (agent.recent_triggers.length > 0) return "bg-green-500";
-  return "bg-red-400";
+  if (agent.recent_triggers.length > 0) {
+    const last = agent.recent_triggers[0];
+    if (last.trigger_status === "failed") return "bg-red-500";
+    if (last.trigger_status === "running") return "bg-green-500 animate-pulse";
+    return "bg-green-500";
+  }
+  return "bg-neutral-400";
 }
 
-function statusLabel(agent: { status: "running" | "idle"; recent_triggers: unknown[] }): {
+function statusLabel(agent: { status: "running" | "idle"; recent_triggers: any[] }): {
   text: string;
   className: string;
 } {
@@ -79,9 +84,16 @@ function statusLabel(agent: { status: "running" | "idle"; recent_triggers: unkno
     return { text: "Running", className: "bg-green-500/15 text-green-600 border-0" };
   }
   if (agent.recent_triggers.length > 0) {
+    const last = agent.recent_triggers[0];
+    if (last.trigger_status === "failed") {
+      return { text: "Failed", className: "bg-red-500/15 text-red-600 border-0" };
+    }
+    if (last.trigger_status === "running") {
+      return { text: "Running", className: "bg-green-500/15 text-green-600 border-0" };
+    }
     return { text: "Completed", className: "bg-green-500/15 text-green-600 border-0" };
   }
-  return { text: "Offline", className: "bg-red-500/15 text-red-500 border-0" };
+  return { text: "Offline", className: "bg-neutral-500/15 text-neutral-500 border-0" };
 }
 
 export default function AgentsPage() {
@@ -119,7 +131,12 @@ export default function AgentsPage() {
                 "cursor-pointer transition-shadow hover:shadow-md",
                 selectedAgent === agent.key && "ring-2 ring-primary shadow-md",
               )}
-              onClick={() => selectAgentLogs(agent.key)}
+              onClick={() => {
+                selectAgentLogs(agent.key);
+                setTimeout(() => {
+                  document.getElementById("logs-panel")?.scrollIntoView({ behavior: "smooth" });
+                }, 100);
+              }}
             >
               <CardContent className="space-y-3 py-5">
                 {/* Header row */}
@@ -165,6 +182,9 @@ export default function AgentsPage() {
                     onClick={(e) => {
                       e.stopPropagation();
                       selectAgentLogs(agent.key);
+                      setTimeout(() => {
+                        document.getElementById("logs-panel")?.scrollIntoView({ behavior: "smooth" });
+                      }, 100);
                     }}
                   >
                     <ScrollText className="mr-1.5 size-3" />
@@ -194,7 +214,7 @@ export default function AgentsPage() {
         <>
           <Separator className="my-6" />
 
-          <Card>
+          <Card id="logs-panel">
             <CardContent className="py-4">
               {/* Panel header */}
               <div className="flex items-center justify-between mb-4">
@@ -206,11 +226,15 @@ export default function AgentsPage() {
                     )}
                   />
                   <h3 className="text-sm font-semibold">{selected.label}</h3>
-                  {selected.status === "running" && (
-                    <Badge className="bg-green-500/15 text-green-600 text-[10px] border-0">
-                      Live
-                    </Badge>
-                  )}
+                  {(() => {
+                    const isRunning = selected.status === "running" || selected.recent_triggers[0]?.trigger_status === "running" || selected.recent_triggers[0]?.trigger_status === "pending";
+                    if (!isRunning) return null;
+                    return (
+                      <Badge className="bg-green-500/15 text-green-600 text-[10px] border-0">
+                        Live
+                      </Badge>
+                    );
+                  })()}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -301,7 +325,7 @@ export default function AgentsPage() {
                       </span>{" "}
                       &middot; {totalLogLines} lines &middot;{" "}
                       {formatDate(selectedTrigger.created_at)}
-                      {selected.status === "running" && (
+                      {(selected.status === "running" || selected.recent_triggers[0]?.trigger_status === "running" || selected.recent_triggers[0]?.trigger_status === "pending") && (
                         <span className="ml-2 text-green-600">
                           (auto-refreshing)
                         </span>

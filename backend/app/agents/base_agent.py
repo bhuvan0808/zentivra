@@ -180,6 +180,9 @@ class BaseAgent(ABC):
         }
         crawl_depth = run_config.crawl_depth if run_config else 0
 
+        # Reset extra findings accumulator (used by _process_feed for RSS entries)
+        self._extra_findings = []
+
         seed_urls = await self.discover_urls(source)
         logger.info(
             "urls_discovered agent=%s source=%s count=%d depth=%d",
@@ -202,7 +205,6 @@ class BaseAgent(ABC):
 
         max_urls = max(1, int(settings.max_urls_per_source))
         source_timeout = max(0, int(settings.source_processing_timeout_seconds))
-        url_timeout = max(1, int(settings.url_processing_timeout_seconds))
         source_start = asyncio.get_running_loop().time()
 
         visited: set[str] = set()
@@ -240,9 +242,8 @@ class BaseAgent(ABC):
                 result["urls_attempted"] += 1
 
                 try:
-                    finding, error_msg = await asyncio.wait_for(
-                        self._process_url(source, url, run_config, run_logger),
-                        timeout=url_timeout,
+                    finding, error_msg = await self._process_url(
+                        source, url, run_config, run_logger,
                     )
                     if finding:
                         result["findings"].append(finding)
@@ -254,21 +255,6 @@ class BaseAgent(ABC):
                             )
                     elif error_msg:
                         result["errors"].append(f"{url}: {error_msg}")
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "url_timeout agent=%s url=%s timeout=%ds",
-                        self.agent_type,
-                        url,
-                        url_timeout,
-                    )
-                    if run_logger:
-                        run_logger.warning(
-                            "url_timeout",
-                            step="fetch",
-                            url=url,
-                            timeout_seconds=url_timeout,
-                        )
-                    result["errors"].append(f"{url}: timeout after {url_timeout}s")
                 except Exception as exc:
                     logger.error(
                         "url_error agent=%s url=%s err=%s",
@@ -306,7 +292,155 @@ class BaseAgent(ABC):
                     queued=len(current_level_urls),
                 )
 
+        # Collect extra findings from RSS feed processing
+        if hasattr(self, "_extra_findings") and self._extra_findings:
+            result["findings"].extend(self._extra_findings)
+            result["urls_succeeded"] += len(self._extra_findings)
+            self._extra_findings = []
+
         return result
+
+    def _is_feed_content(self, content: str, url: str, content_type: str) -> bool:
+        """Detect if fetched content is an RSS/Atom feed."""
+        # Check URL patterns
+        if any(ext in url.lower() for ext in (".xml", "/rss", "/feed", "/atom", "index.xml")):
+            return True
+        # Check content-type header
+        if any(ct in content_type.lower() for ct in ("xml", "rss", "atom")):
+            return True
+        # Check content itself (first 500 chars)
+        prefix = content[:500].strip()
+        if prefix.startswith("<?xml") or "<rss" in prefix or "<feed" in prefix or "<atom" in prefix:
+            return True
+        return False
+
+    async def _process_feed(
+        self,
+        source: Source,
+        fetch_result,
+        run_config: Run | None,
+        run_logger=None,
+    ) -> list[tuple[Optional[dict], Optional[str]]]:
+        """Parse an RSS/Atom feed and process each entry as a separate finding.
+
+        Each feed entry's title + summary is used as content for LLM summarization.
+        If an entry has a link, we also try to fetch and extract the full article.
+        Returns list of (finding_dict, error_msg) tuples.
+        """
+        entries = self.extractor.extract_feed(fetch_result.content, feed_url=fetch_result.url)
+        if not entries:
+            logger.warning("feed_empty url=%s", fetch_result.url)
+            if run_logger:
+                run_logger.warning("feed_empty", step="extract", url=fetch_result.url[:120])
+            return [(None, "feed_empty: no entries found")]
+
+        max_entries = max(1, int(settings.max_urls_per_source)) * 3  # Allow more from feeds
+        entries = entries[:max_entries]
+
+        logger.info(
+            "feed_parsed url=%s entries=%d",
+            fetch_result.url[:80],
+            len(entries),
+        )
+        if run_logger:
+            run_logger.info(
+                "feed_parsed",
+                step="extract",
+                url=fetch_result.url[:120],
+                entries=len(entries),
+            )
+
+        results = []
+        for entry in entries:
+            entry_url = entry.link or fetch_result.url
+            # Build content from entry title + summary; try to fetch full article too
+            entry_content = ""
+            if entry.title:
+                entry_content += f"Title: {entry.title}\n\n"
+            if entry.summary:
+                entry_content += f"{entry.summary}\n\n"
+
+            # Try to fetch the full article from the entry link
+            if entry.link and entry.link != fetch_result.url:
+                try:
+                    if run_logger:
+                        run_logger.info("fetch_entry_start", step="fetch", url=entry.link[:120])
+                    article_result = await self.fetcher.fetch(entry.link)
+                    if article_result.success:
+                        extraction = self.extractor.extract_html(
+                            article_result.content, url=entry.link
+                        )
+                        if extraction.success and extraction.text and len(extraction.text) > 100:
+                            entry_content = extraction.text
+                            if run_logger:
+                                run_logger.info(
+                                    "fetch_entry_done",
+                                    step="fetch",
+                                    url=entry.link[:120],
+                                    text_len=len(entry_content),
+                                )
+                except Exception as exc:
+                    logger.warning("feed_entry_fetch_error url=%s err=%s", entry.link, str(exc)[:200])
+
+            if not entry_content or len(entry_content.strip()) < 50:
+                continue
+
+            # Preprocess
+            cleaned_text = preprocess(entry_content)
+            if not cleaned_text:
+                continue
+
+            # Keyword filter
+            if run_config and run_config.keywords:
+                text_lower = cleaned_text.lower()
+                if not any(kw.lower() in text_lower for kw in run_config.keywords):
+                    continue
+
+            # Summarize
+            if run_logger:
+                run_logger.info("summarize_start", step="summarize", url=entry_url[:120])
+            summary = await self.summarizer.summarize(
+                content=cleaned_text,
+                source_name=source.display_name,
+                source_url=entry_url,
+                content_type=self._get_content_type(),
+            )
+
+            if not summary.success:
+                logger.warning("summarize_failed url=%s err=%s", entry_url, summary.error)
+                if run_logger:
+                    run_logger.warning(
+                        "summarize_failed",
+                        step="summarize",
+                        url=entry_url[:120],
+                        error=str(summary.error)[:200],
+                    )
+                results.append((None, f"summarize_failed: {summary.error}"))
+                continue
+
+            finding = self._build_finding_dict(
+                summary, cleaned_text, entry_url, source, discovered_links=[]
+            )
+            finding = await self.post_process_finding(finding, None, source)
+
+            logger.info(
+                "finding_created agent=%s url=%s category=%s confidence=%.2f",
+                self.agent_type,
+                entry_url[:60],
+                finding["category"],
+                finding["confidence"],
+            )
+            if run_logger:
+                run_logger.info(
+                    "finding_created",
+                    step="summarize",
+                    url=entry_url[:120],
+                    category=finding["category"],
+                    confidence=finding["confidence"],
+                )
+            results.append((finding, None))
+
+        return results
 
     async def _process_url(
         self,
@@ -315,20 +449,15 @@ class BaseAgent(ABC):
         run_config: Run | None,
         run_logger=None,
     ) -> tuple[Optional[dict], Optional[str]]:
-        """Single URL pipeline: fetch -> extract -> preprocess -> keyword filter -> summarize.
+        """Single URL pipeline: fetch -> detect feed/HTML -> extract -> preprocess -> summarize.
 
-        Pipeline steps:
-            1. Fetch: HTTP fetch via Fetcher
-            2. Extract: HTML to text + links via Extractor
-            3. Preprocess: clean/normalize text
-            4. Keyword filter: if run_config.keywords set, skip when no match (not an error)
-            5. Summarize: AI summarization via Summarizer
-            6. Build finding dict and run post_process_finding()
+        For RSS/Atom feeds, delegates to _process_feed which returns multiple findings.
+        The first finding is returned here; extras are stashed in _extra_findings.
 
         Returns:
             (finding_dict, None)  on success
-            (None, error_msg)     on failure (fetch/extract/preprocess/summarize)
-            (None, None)          on intentional skip (keyword filter)
+            (None, error_msg)     on failure
+            (None, None)          on intentional skip
         """
 
         # ── Fetch ──────────────────────────────────────────────
@@ -350,7 +479,35 @@ class BaseAgent(ABC):
         if run_logger:
             run_logger.info("fetch_done", step="fetch", url=url[:120])
 
-        # ── Extract ────────────────────────────────────────────
+        # ── Detect RSS/Atom feed ───────────────────────────────
+        content_type = fetch_result.content_type or ""
+        if self._is_feed_content(fetch_result.content, url, content_type):
+            logger.info("feed_detected url=%s", url[:80])
+            if run_logger:
+                run_logger.info("feed_detected", step="extract", url=url[:120])
+            feed_results = await self._process_feed(
+                source, fetch_result, run_config, run_logger
+            )
+            # Return first finding; stash extras for the caller to pick up
+            first_finding = None
+            first_error = None
+            extras = []
+            for finding, error in feed_results:
+                if finding and first_finding is None:
+                    first_finding = finding
+                elif finding:
+                    extras.append(finding)
+                elif error and first_error is None:
+                    first_error = error
+            # Stash extra findings on self so _process_source can collect them
+            if not hasattr(self, "_extra_findings"):
+                self._extra_findings = []
+            self._extra_findings.extend(extras)
+            if first_finding:
+                return first_finding, None
+            return None, first_error or "feed_empty"
+
+        # ── Extract (HTML) ─────────────────────────────────────
         if run_logger:
             run_logger.info("extract_start", step="extract", url=url[:120])
         extraction = self.extractor.extract_html(
@@ -446,14 +603,10 @@ class BaseAgent(ABC):
             )
 
         # ── Build finding dict ─────────────────────────────────
-        finding = {
-            "content": cleaned_text[:5000],
-            "summary": summary.summary_short or summary.summary_long or "",
-            "src_url": url,
-            "category": summary.category or "other",
-            "confidence": summary.confidence or 0.5,
-            "_discovered_links": getattr(extraction, "links", []),
-        }
+        finding = self._build_finding_dict(
+            summary, cleaned_text, url, source,
+            discovered_links=getattr(extraction, "links", []),
+        )
 
         finding = await self.post_process_finding(finding, extraction, source)
 
@@ -473,6 +626,45 @@ class BaseAgent(ABC):
                 confidence=finding["confidence"],
             )
         return finding, None
+
+    # ── Finding builder ────────────────────────────────────────────
+
+    def _build_finding_dict(
+        self,
+        summary,
+        cleaned_text: str,
+        url: str,
+        source,
+        discovered_links: list | None = None,
+    ) -> dict:
+        """Build a rich finding dict from a SummaryResult, propagating all fields.
+
+        This ensures the PDF renderer receives title, summary_short, summary_long,
+        why_it_matters, what_changed, who_it_affects, key_numbers, entities, etc.
+        """
+        return {
+            # Core fields (persisted in Finding table)
+            "content": cleaned_text[:5000],
+            "summary": summary.summary_short or summary.summary_long or "",
+            "src_url": url,
+            "source_url": url,
+            "category": summary.category or "other",
+            "confidence": summary.confidence or 0.5,
+            # Rich fields from SummaryResult (used by PDF renderer)
+            "title": summary.title or "",
+            "summary_short": summary.summary_short or "",
+            "summary_long": summary.summary_long or "",
+            "why_it_matters": summary.why_it_matters or "",
+            "what_changed": summary.what_changed or "",
+            "who_it_affects": summary.who_it_affects or "",
+            "key_numbers": summary.key_numbers or [],
+            "tags": summary.tags or [],
+            "entities": summary.entities or {},
+            "evidence": summary.evidence or {},
+            "publisher": source.display_name if source else "",
+            # Internal
+            "_discovered_links": discovered_links or [],
+        }
 
     # ── Overridable hooks ──────────────────────────────────────────
 
