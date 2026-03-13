@@ -63,10 +63,10 @@ class Settings(BaseSettings):
 
     # ── Email ─────────────────────────────────────────────────────────────
     sendgrid_api_key: Optional[str] = None
-    smtp_host: Optional[str] = "smtp.gmail.com"
+    smtp_host: Optional[str] = None
     smtp_port: int = 587
-    smtp_user: Optional[str] = "zentivra0@gmail.com"
-    smtp_password: Optional[str] = "faoxxggcgulwhyyt"
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
     smtp_use_tls: bool = True
     smtp_use_ssl: bool = False
     smtp_timeout_seconds: int = 30

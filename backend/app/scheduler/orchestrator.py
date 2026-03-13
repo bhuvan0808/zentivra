@@ -403,11 +403,14 @@ class Orchestrator:
                         step="email_send",
                         recipients=len(recipients),
                     )
-                    await self._send_email(
+                    email_ok = await self._send_email(
                         digest_record,
                         recipients,
                     )
-                    run_log.info("email_sent", step="email_send")
+                    if email_ok:
+                        run_log.info("email_sent", step="email_send")
+                    else:
+                        run_log.warning("email_send_failed", step="email_send")
 
                 await db.commit()
 
@@ -710,20 +713,25 @@ class Orchestrator:
         self,
         digest: Digest,
         recipients: list[str],
-    ) -> None:
-        """Send digest email if configured."""
+    ) -> bool:
+        """Send digest email if configured. Returns True on success."""
         try:
             today = datetime.now().strftime("%Y-%m-%d")
             subject = f"Zentivra AI Radar - {today}"
-            await self.email_service.send_digest_email(
+            sent = await self.email_service.send_digest_email(
                 recipients=recipients,
                 subject=subject,
                 executive_summary="Your Zentivra AI Radar digest is ready.",
                 pdf_path=digest.pdf_path,
             )
-            logger.info("email_sent recipients=%d", len(recipients))
+            if sent:
+                logger.info("email_sent recipients=%d", len(recipients))
+            else:
+                logger.error("email_send_failed recipients=%d", len(recipients))
+            return sent
         except Exception as exc:
             logger.error("email_send_error err=%s", str(exc)[:200])
+            return False
 
     # ── Layer 8: Log Persistence ──────────────────────────────────
 
