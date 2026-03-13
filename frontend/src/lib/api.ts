@@ -351,6 +351,17 @@ export function getDigestHtmlUrl(digestId: string): string {
   return buildUrl(`/api/digests/${digestId}/html`);
 }
 
+export function sendDigestEmail(
+  digestIds: string[],
+  recipients: string[],
+): Promise<ApiResult<{ sent: number; failed: number; details: object[] }>> {
+  return request(buildUrl("/api/digests/send-email"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ digest_ids: digestIds, recipients }),
+  });
+}
+
 // ── Execution Logs ──
 
 export function getTriggerLogs(
