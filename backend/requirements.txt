@@ -34,7 +34,9 @@ fpdf2>=2.8.4,<3.0.0
 jinja2>=3.1.0,<4.0.0
 
 # Email
-sendgrid>=6.11.0,<7.0.0
+# Brevo uses httpx (already included via fastapi[standard]) — no extra SDK needed
+# SendGrid is optional legacy support; install only if using SENDGRID_API_KEY
+# sendgrid>=6.11.0,<7.0.0
 
 # Scheduling
 apscheduler>=3.10.0,<4.0.0

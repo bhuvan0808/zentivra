@@ -1,9 +1,9 @@
 """
 Zentivra Database Module.
 
-Async SQLAlchemy engine and session factory for PostgreSQL. Handles SSL configuration
-for cloud databases (e.g. Render) and provides a dependency-injectable session with
-automatic commit/rollback/close lifecycle.
+Async SQLAlchemy engine and session factory for PostgreSQL (or SQLite for dev).
+Handles SSL configuration for cloud databases (e.g. Railway, Aiven) and provides
+a dependency-injectable session with automatic commit/rollback/close lifecycle.
 """
 
 import ssl
@@ -16,23 +16,28 @@ from app.config import settings, BASE_DIR
 
 connect_args: dict = {}
 
-_cert_path_raw = settings.database_ca_cert_path
-if _cert_path_raw:
-    _cert_path = Path(_cert_path_raw)
-    if not _cert_path.is_absolute():
-        _cert_path = BASE_DIR / _cert_path
+# Only configure SSL for PostgreSQL connections (not SQLite)
+if "postgresql" in settings.database_url:
+    _cert_path_raw = settings.database_ca_cert_path
+    if _cert_path_raw:
+        _cert_path = Path(_cert_path_raw)
+        if not _cert_path.is_absolute():
+            _cert_path = BASE_DIR / _cert_path
 
-    if _cert_path.exists():
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ctx.load_verify_locations(str(_cert_path))
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        connect_args["ssl"] = ctx
+        if _cert_path.exists():
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ctx.load_verify_locations(str(_cert_path))
+            # Enable hostname verification for security
+            ctx.check_hostname = True
+            ctx.verify_mode = ssl.CERT_REQUIRED
+            connect_args["ssl"] = ctx
+        else:
+            # Cert file specified but missing — use generic require
+            connect_args["ssl"] = "require"
     else:
+        # No custom CA: use generic "require" so asyncpg negotiates TLS.
+        # Railway, Aiven, Render all support this mode.
         connect_args["ssl"] = "require"
-else:
-    # No custom CA: use generic "require" so asyncpg negotiates TLS
-    connect_args["ssl"] = "require"
 
 engine = create_async_engine(
     settings.database_url,

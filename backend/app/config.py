@@ -62,7 +62,11 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-sonnet-4-20250514"
 
     # ── Email ─────────────────────────────────────────────────────────────
+    # Brevo (recommended — fastest transactional email)
+    brevo_api_key: Optional[str] = None
+    # SendGrid (legacy support)
     sendgrid_api_key: Optional[str] = None
+    # SMTP (universal fallback — works with Brevo SMTP, Gmail, etc.)
     smtp_host: Optional[str] = None
     smtp_port: int = 587
     smtp_user: Optional[str] = None
@@ -83,11 +87,11 @@ class Settings(BaseSettings):
 
     # ── CORS ──────────────────────────────────────────────────────────────
     allowed_origins: str = (
-        "http://localhost:3000,http://127.0.0.1:3000,https://zentivra.vercel.app/"
+        "http://localhost:3000,http://127.0.0.1:3000,https://zentivra.vercel.app"
     )
 
     # ── Auth / Valkey ─────────────────────────────────────────────────────
-    valkey_url: str = "rediss://localhost:6379/0"
+    valkey_url: str = "redis://localhost:6379/0"
     auth_token_ttl_hours: int = 2
 
     # ── App Settings ──────────────────────────────────────────────────────
@@ -165,12 +169,16 @@ class Settings(BaseSettings):
     @property
     def has_email_configured(self) -> bool:
         """Check if any email delivery method is configured."""
+        has_brevo = bool(
+            self.brevo_api_key
+            and self.brevo_api_key != "your-brevo-api-key-here"
+        )
         has_sendgrid = bool(
             self.sendgrid_api_key
             and self.sendgrid_api_key != "your-sendgrid-api-key-here"
         )
         has_smtp = bool(self.smtp_host)
-        return has_sendgrid or has_smtp
+        return has_brevo or has_sendgrid or has_smtp
 
 
 # Singleton settings instance
