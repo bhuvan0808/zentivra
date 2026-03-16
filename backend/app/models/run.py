@@ -55,6 +55,10 @@ class Run(Base):
     crawl_frequency: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     crawl_depth: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     keywords: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    llm_provider: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, default=None,
+        comment="Per-run LLM override: groq, openrouter, gemini, openai, anthropic, or NULL for server default",
+    )
 
     # sources: list of source_ids to include in this run
     # crawl_frequency: schedule config (e.g. {"type": "cron", "expression": "0 9 * * *"})

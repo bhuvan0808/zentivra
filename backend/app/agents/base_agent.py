@@ -35,10 +35,10 @@ class BaseAgent(ABC):
         - post_process_finding(): agent-specific enrichment
     """
 
-    def __init__(self):
+    def __init__(self, llm_provider: str | None = None):
         self.fetcher = Fetcher()
         self.extractor = Extractor()
-        self.summarizer = Summarizer()
+        self.summarizer = Summarizer(provider=llm_provider)
 
     @property
     @abstractmethod

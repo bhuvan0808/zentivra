@@ -98,6 +98,12 @@ async def ensure_schema():
                 "ALTER TABLE findings ADD COLUMN IF NOT EXISTS meta JSONB DEFAULT NULL"
             )
         )
+        # Add llm_provider column to runs if it doesn't exist
+        await conn.execute(
+            text(
+                "ALTER TABLE runs ADD COLUMN IF NOT EXISTS llm_provider VARCHAR(50) DEFAULT NULL"
+            )
+        )
 
 
 async def close_db():

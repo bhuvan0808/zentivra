@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { getSources, createRun } from "@/lib/api";
-import type { Source, CrawlSchedule } from "@/lib/types";
+import type { Source, CrawlSchedule, LlmProvider } from "@/lib/types";
 
 export interface ConfigParams {
   crawl_frequency: string;
@@ -28,6 +28,8 @@ export interface UseRunConfigureReturn {
   setRunName: (v: string) => void;
   description: string;
   setDescription: (v: string) => void;
+  llmProvider: LlmProvider | null;
+  setLlmProvider: (v: LlmProvider | null) => void;
   enableEmailAlert: boolean;
   setEnableEmailAlert: (v: boolean) => void;
   recipients: string[];
@@ -85,6 +87,7 @@ export function useRunConfigure(): UseRunConfigureReturn {
   // Step 1
   const [runName, setRunName] = useState("");
   const [description, setDescription] = useState("");
+  const [llmProvider, setLlmProvider] = useState<LlmProvider | null>(null);
   const [enableEmailAlert, setEnableEmailAlert] = useState(false);
   const [recipients, setRecipients] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
@@ -343,6 +346,7 @@ export function useRunConfigure(): UseRunConfigureReturn {
       crawl_frequency: buildSchedule(),
       crawl_depth: finalParams.crawl_depth,
       keywords: finalParams.keywords.length > 0 ? finalParams.keywords : [],
+      llm_provider: llmProvider,
       trigger_on_create: andTrigger,
     });
 
@@ -365,6 +369,8 @@ export function useRunConfigure(): UseRunConfigureReturn {
     setRunName,
     description,
     setDescription,
+    llmProvider,
+    setLlmProvider,
     enableEmailAlert,
     setEnableEmailAlert,
     recipients,
