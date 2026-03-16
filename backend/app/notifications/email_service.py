@@ -1,5 +1,5 @@
 """
-Email Notification Service — sends digest emails via SendGrid or SMTP.
+Email Notification Service — sends digest emails via Brevo (primary), SendGrid, or SMTP.
 
 Post-processing component: runs after the digest pipeline has produced
 HTML/PDF. Delivers notifications containing:
@@ -7,14 +7,17 @@ HTML/PDF. Delivers notifications containing:
 - PDF attachment (when available)
 - Link to web dashboard
 
-SendGrid vs SMTP fallback:
-- Primary: SendGrid API when SENDGRID_API_KEY is configured and valid.
-- Fallback: If SendGrid is configured but fails (API error, network, etc.),
-  the service automatically falls back to SMTP when SMTP settings are present.
-- SMTP-only: When SendGrid is not configured, SMTP is used directly.
+Provider priority:
+1. Brevo API (BREVO_API_KEY) — fastest, recommended
+2. SendGrid API (SENDGRID_API_KEY) — legacy support
+3. SMTP (SMTP_HOST) — universal fallback
+
+If the primary provider fails and a fallback is configured, the service
+automatically retries with the next available provider.
 """
 
 import smtplib
+import base64
 from datetime import date
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
@@ -29,13 +32,13 @@ from app.config import settings
 
 class EmailService:
     """
-    Email delivery service supporting SendGrid (primary) and SMTP (fallback).
+    Email delivery service supporting Brevo (primary), SendGrid, and SMTP (fallback).
 
     Provider selection:
-    1. If SendGrid API key is set and valid → use SendGrid.
-    2. If SendGrid fails and SMTP is configured → fall back to SMTP.
-    3. If only SMTP is configured → use SMTP directly.
-    4. If neither is configured → return False and log error.
+    1. If Brevo API key is set and valid → use Brevo.
+    2. If Brevo fails/absent and SendGrid API key is set → use SendGrid.
+    3. If SendGrid fails/absent and SMTP is configured → fall back to SMTP.
+    4. If nothing is configured → return False and log error.
 
     Usage:
         service = EmailService()
@@ -59,7 +62,7 @@ class EmailService:
         Send the daily digest email to recipients.
 
         Normalizes and deduplicates recipients, builds HTML body, and sends
-        via SendGrid or SMTP (with fallback as documented in module docstring).
+        via Brevo, SendGrid, or SMTP (with fallback chain).
         Skips send if no recipients or email is not configured.
 
         Args:
@@ -90,26 +93,36 @@ class EmailService:
         html_body = self._build_email_body(executive_summary, dashboard_url, pdf_path)
 
         try:
+            use_brevo = bool(
+                settings.brevo_api_key
+                and settings.brevo_api_key != "your-brevo-api-key-here"
+            )
             use_sendgrid = bool(
                 settings.sendgrid_api_key
                 and settings.sendgrid_api_key != "your-sendgrid-api-key-here"
             )
             use_smtp = bool(settings.smtp_host)
 
+            # ── Try Brevo first (fastest) ──
+            if use_brevo:
+                sent = await self._send_via_brevo(
+                    normalized_recipients, subject, html_body, pdf_path
+                )
+                if sent:
+                    return True
+                logger.warning("brevo_failed_trying_fallback")
+
+            # ── Try SendGrid second (legacy) ──
             if use_sendgrid:
                 sent = await self._send_via_sendgrid(
                     normalized_recipients, subject, html_body, pdf_path
                 )
                 if sent:
                     return True
-                # Fall back to SMTP when SendGrid is configured but unavailable.
                 if use_smtp:
                     logger.warning("sendgrid_failed_falling_back_to_smtp")
-                    return await self._send_via_smtp(
-                        normalized_recipients, subject, html_body, pdf_path
-                    )
-                return False
 
+            # ── Try SMTP last (universal fallback) ──
             if use_smtp:
                 return await self._send_via_smtp(
                     normalized_recipients, subject, html_body, pdf_path
@@ -122,6 +135,73 @@ class EmailService:
             logger.error("email_send_error error=%s", str(e))
             return False
 
+    # ── Brevo (Sendinblue) via REST API ──────────────────────────────────
+
+    async def _send_via_brevo(
+        self,
+        recipients: list[str],
+        subject: str,
+        html_body: str,
+        pdf_path: Optional[str],
+    ) -> bool:
+        """
+        Send email via Brevo (Sendinblue) transactional email API.
+
+        Uses httpx for async HTTP — no extra SDK dependency needed.
+        Attaches PDF if pdf_path exists. Returns True for status 201.
+        """
+        try:
+            import httpx
+
+            payload: dict = {
+                "sender": {
+                    "name": "Zentivra AI Radar",
+                    "email": settings.email_from,
+                },
+                "to": [{"email": r} for r in recipients],
+                "subject": subject,
+                "htmlContent": html_body,
+            }
+
+            # Attach PDF
+            if pdf_path and Path(pdf_path).exists():
+                with open(pdf_path, "rb") as f:
+                    pdf_data = base64.b64encode(f.read()).decode()
+
+                payload["attachment"] = [
+                    {
+                        "content": pdf_data,
+                        "name": Path(pdf_path).name,
+                    }
+                ]
+
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.post(
+                    "https://api.brevo.com/v3/smtp/email",
+                    headers={
+                        "api-key": settings.brevo_api_key,
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                    },
+                    json=payload,
+                )
+
+            logger.info(
+                "email_sent_brevo recipients=%d status=%d",
+                len(recipients),
+                response.status_code,
+            )
+            return response.status_code in (200, 201, 202)
+
+        except ImportError:
+            logger.error("httpx_not_installed_for_brevo (should be available via fastapi[standard])")
+            return False
+        except Exception as e:
+            logger.error("brevo_error error=%s", str(e))
+            return False
+
+    # ── SendGrid (legacy support) ────────────────────────────────────────
+
     async def _send_via_sendgrid(
         self,
         recipients: list[str],
@@ -130,7 +210,7 @@ class EmailService:
         pdf_path: Optional[str],
     ) -> bool:
         """
-        Send email via SendGrid API.
+        Send email via SendGrid API (legacy support).
 
         Attaches PDF if pdf_path exists. Returns True for status 200/201/202.
         Returns False on ImportError (sendgrid not installed) or API/network errors.
@@ -139,14 +219,12 @@ class EmailService:
             from sendgrid import SendGridAPIClient
             from sendgrid.helpers.mail import (
                 Attachment,
-                ContentId,
                 Disposition,
                 FileContent,
                 FileName,
                 FileType,
                 Mail,
             )
-            import base64
 
             message = Mail(
                 from_email=settings.email_from,
@@ -185,6 +263,8 @@ class EmailService:
             logger.error("sendgrid_error error=%s", str(e))
             return False
 
+    # ── SMTP (universal fallback) ────────────────────────────────────────
+
     async def _send_via_smtp(
         self,
         recipients: list[str],
@@ -193,7 +273,7 @@ class EmailService:
         pdf_path: Optional[str],
     ) -> bool:
         """
-        Send email via SMTP (e.g., Gmail, custom mail server).
+        Send email via SMTP (e.g., Brevo SMTP, Gmail, custom mail server).
 
         Uses SMTP_SSL or SMTP with optional STARTTLS. Attaches PDF if pdf_path
         exists. Normalizes Gmail app passwords (removes spaces) when applicable.
@@ -252,6 +332,8 @@ class EmailService:
             logger.error("smtp_error error=%s", str(e))
             return False
 
+    # ── Email Body Builder ───────────────────────────────────────────────
+
     def _build_email_body(
         self,
         executive_summary: str,
@@ -298,7 +380,7 @@ class EmailService:
             <div class="container">
                 <div class="header">
                     <h1>ZENTIVRA</h1>
-                    <p>Frontier AI Radar — {today}</p>
+                    <p>Frontier AI Radar &mdash; {today}</p>
                 </div>
                 <div class="content">
                     <h2>Executive Summary</h2>
@@ -306,7 +388,7 @@ class EmailService:
                         {summary_html}
                     </div>
                     <p>The full digest is attached as a PDF.</p>
-                    <a href="{dashboard_url}" class="cta">View Dashboard →</a>
+                    <a href="{dashboard_url}" class="cta">View Dashboard &rarr;</a>
                 </div>
                 <div class="footer">
                     <p>Generated by Zentivra AI Radar</p>
