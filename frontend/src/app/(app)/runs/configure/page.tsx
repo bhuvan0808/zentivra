@@ -34,7 +34,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { StatusBadge } from "@/components/status-badge";
-import type { AgentType } from "@/lib/types";
+import type { AgentType, LlmProvider } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useRunConfigure, WEEK_DAYS } from "@/hooks/use-run-configure";
 
@@ -44,6 +44,15 @@ const FREQUENCY_OPTIONS = [
   { value: "daily", label: "Daily" },
   { value: "weekly", label: "Weekly" },
   { value: "monthly", label: "Monthly" },
+];
+
+const LLM_PROVIDER_OPTIONS: { value: LlmProvider | "auto"; label: string }[] = [
+  { value: "auto", label: "Auto (Server Default)" },
+  { value: "groq", label: "Groq (Llama 3.3 70B)" },
+  { value: "openai", label: "OpenAI (GPT-4o)" },
+  { value: "gemini", label: "Google Gemini" },
+  { value: "openrouter", label: "OpenRouter" },
+  { value: "anthropic", label: "Anthropic (Claude)" },
 ];
 
 const AGENT_TYPE_LABELS: Record<AgentType, string> = {
@@ -62,6 +71,8 @@ export default function ConfigureRunPage() {
     setRunName,
     description,
     setDescription,
+    llmProvider,
+    setLlmProvider,
     enableEmailAlert,
     setEnableEmailAlert,
     recipients,
@@ -179,6 +190,29 @@ export default function ConfigureRunPage() {
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                 />
+              </div>
+              <div className="space-y-2.5">
+                <Label>LLM Provider</Label>
+                <Select
+                  value={llmProvider ?? "auto"}
+                  onValueChange={(v) =>
+                    setLlmProvider(v === "auto" ? null : (v as LlmProvider))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select LLM provider" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LLM_PROVIDER_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Choose which AI model to use for summarization and ranking
+                </p>
               </div>
               <div className="flex flex-col gap-4 rounded-md border p-4">
                 <div className="flex items-center justify-between">

@@ -77,7 +77,6 @@ class Orchestrator:
     """
 
     def __init__(self):
-        self.digest_compiler = DigestCompiler()
         self.pdf_renderer = PDFRenderer()
         self.email_service = EmailService()
 
@@ -355,6 +354,7 @@ class Orchestrator:
 
                 # ── 7. Conditional PDF / HTML ───────────────────────
                 # Generate when pdf enabled and findings exist (including cached).
+                # Use per-run LLM provider if configured, else server default.
                 digest_record = None
                 if (
                     run.enable_pdf_gen
@@ -659,7 +659,11 @@ class Orchestrator:
     ) -> Digest | None:
         """Compile digest, generate PDF + HTML, persist Digest record."""
         try:
-            digest_data = await self.digest_compiler.compile(
+            # Use per-run LLM provider if set, otherwise server default
+            digest_compiler = DigestCompiler(
+                llm_provider=getattr(run, "llm_provider", None),
+            )
+            digest_data = await digest_compiler.compile(
                 run_trigger_id=trigger.id,
                 findings=findings,
             )

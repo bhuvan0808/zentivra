@@ -126,7 +126,9 @@ async def run_agent_node(state: dict) -> dict:
             "agent_results": [(agent_type_str, _EMPTY_RESULT.copy(), RuntimeError(f"no agent for: {agent_type_str}"))]
         }
 
-    agent = agent_class()
+    # Use per-run LLM provider if set on the Run config
+    llm_provider = getattr(run_config, "llm_provider", None) if run_config else None
+    agent = agent_class(llm_provider=llm_provider)
     agent_logger = run_log.for_agent(agent_type_str) if run_log else None
     timeout = max(0, int(settings.agent_timeout_seconds))
 

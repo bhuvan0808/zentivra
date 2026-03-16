@@ -54,6 +54,8 @@ export interface CrawlSchedule {
   readonly periods: string[] | null;
 }
 
+export type LlmProvider = "groq" | "openrouter" | "gemini" | "openai" | "anthropic";
+
 export interface Run {
   readonly run_id: string;
   readonly run_name: string;
@@ -65,6 +67,7 @@ export interface Run {
   readonly crawl_frequency: CrawlSchedule | null;
   readonly crawl_depth: number;
   readonly keywords: string[] | null;
+  readonly llm_provider: LlmProvider | null;
   readonly is_enabled: boolean;
   readonly has_active_triggers: boolean;
   readonly created_at: string;
@@ -81,6 +84,7 @@ export interface RunCreate {
   crawl_frequency?: CrawlSchedule;
   crawl_depth: number;
   keywords?: string[];
+  llm_provider?: LlmProvider | null;
   trigger_on_create?: boolean;
 }
 
@@ -94,6 +98,7 @@ export interface RunUpdate {
   crawl_frequency?: CrawlSchedule;
   crawl_depth?: number;
   keywords?: string[];
+  llm_provider?: LlmProvider | null;
   is_enabled?: boolean;
 }
 

@@ -73,6 +73,10 @@ class RunCreate(BaseModel):
     crawl_frequency: FlexibleCrawlFrequency = None
     crawl_depth: int = Field(default=0, ge=0, le=10)
     keywords: Optional[list[str]] = None
+    llm_provider: Optional[str] = Field(
+        default=None,
+        description="Per-run LLM provider override: groq, openrouter, gemini, openai, anthropic. Null = server default.",
+    )
     trigger_on_create: bool = Field(
         default=False,
         description="If true, trigger the run immediately after creation.",
@@ -91,6 +95,7 @@ class RunUpdate(BaseModel):
     crawl_frequency: FlexibleCrawlFrequency = None
     crawl_depth: Optional[int] = Field(None, ge=0, le=10)
     keywords: Optional[list[str]] = None
+    llm_provider: Optional[str] = None
     is_enabled: Optional[bool] = None
 
 
@@ -107,6 +112,7 @@ class RunResponse(BaseModel):
     crawl_frequency: FlexibleCrawlFrequency = None
     crawl_depth: int
     keywords: Optional[list] = None
+    llm_provider: Optional[str] = None
     is_enabled: bool
     has_active_triggers: bool = False
     created_at: datetime

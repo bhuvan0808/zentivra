@@ -1,21 +1,3 @@
-# ⚠️  DEPRECATED — backend has moved to Railway.
-# This file is kept for reference only. See backend/railway.json for the new config.
-# For Railway deployment, set environment variables in the Railway dashboard.
-#
-# Required env vars on Railway:
-#   APP_ENV=production
-#   DATABASE_URL=postgresql+asyncpg://user:pass@host:port/dbname
-#   ALLOWED_ORIGINS=https://zentivra.vercel.app,http://localhost:3000
-#   VALKEY_URL=rediss://default:pass@host:port/0
-#   BREVO_API_KEY=xkeysib-...
-#   EMAIL_FROM=zentivra@yourdomain.com
-#   EMAIL_RECIPIENTS=user@example.com
-#   DIGEST_TIME=06:00
-#   TIMEZONE=Asia/Kolkata
-#   # At least one LLM key:
-#   GEMINI_API_KEY=...
-#   # or GROQ_API_KEY, OPENROUTER_API_KEY, etc.
-
 services:
   - type: web
     name: zentivra-backend
@@ -68,6 +50,10 @@ services:
       - key: EMAIL_FROM
         sync: false
       - key: EMAIL_RECIPIENTS
+        sync: false
+
+      # Auth / Valkey
+      - key: VALKEY_URL
         sync: false
 
       # Scheduling
